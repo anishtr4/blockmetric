@@ -68,6 +68,11 @@ export default function Login() {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
+            <Box sx={{ mt: 1 }}>
+              <Link component={RouterLink} to="/forgot-password" level="body-sm">
+                Forgot password?
+              </Link>
+            </Box>
           </FormControl>
 
           {error && (
