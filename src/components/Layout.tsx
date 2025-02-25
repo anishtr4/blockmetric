@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useColorScheme } from '@mui/joy/styles';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import { useWebsite } from '../contexts/WebsiteContext';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import PeopleIcon from '@mui/icons-material/People';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -11,6 +12,9 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import LogoutIcon from '@mui/icons-material/Logout';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LightModeIcon from '@mui/icons-material/LightMode';
+import Select from '@mui/joy/Select';
+import Option from '@mui/joy/Option';
+import LanguageIcon from '@mui/icons-material/Language';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +25,17 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const { logout } = useAuth();
   const { mode, setMode } = useColorScheme();
+  const { selectedWebsite, setSelectedWebsite } = useWebsite();
+
+  const { websites, loading } = useWebsite();
+  
+  const websiteOptions = [
+    { id: 'all', name: 'All Websites' },
+    ...websites.map(site => ({
+      id: site.id,
+      name: site.domain
+    }))
+  ];
 
   const handleLogout = () => {
     logout();
@@ -50,7 +65,7 @@ export default function Layout({ children }: LayoutProps) {
           level="h4"
           component="div"
           sx={{
-            mb: 3,
+            mb: 2,
             fontWeight: 'bold',
             color: 'primary.main',
             letterSpacing: '0.5px'
@@ -58,6 +73,20 @@ export default function Layout({ children }: LayoutProps) {
         >
           BlockMetric
         </Typography>
+
+        <Select
+          placeholder="Select Website"
+          value={selectedWebsite}
+          onChange={(_, value) => setSelectedWebsite(value as string)}
+          startDecorator={<LanguageIcon />}
+          sx={{ mb: 2 }}
+        >
+          {websites.map((website) => (
+            <Option key={website.id} value={website.id}>
+              {website.name}
+            </Option>
+          ))}
+        </Select>
         <List
           sx={{
             '--ListItem-radius': '8px',

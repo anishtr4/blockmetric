@@ -5,30 +5,29 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const bodyParser = require('body-parser');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+const websitesRoutes = require('./routes/websites');
+const ApiKey = require('./models/ApiKey');
 
 const app = express();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(bodyParser.json());
 
 // MongoDB connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/blockmetric')
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// User Schema
-const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  apiKey: { type: String, unique: true },
-  resetToken: { type: String },
-  resetTokenExpiry: { type: Date },
-  createdAt: { type: Date, default: Date.now }
-});
+// Routes
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/websites', websitesRoutes);
 
-const User = mongoose.model('User', userSchema);
+// Import User model
+const User = require('./models/User');
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
@@ -218,6 +217,107 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
   }
 });
 
+
+// Update validateApiKey middleware to use MongoDB
+const validateApiKey = async (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.status(401).json({ error: 'API key is required' });
+  }
+
+  try {
+    const keyData = await ApiKey.findOne({ key: apiKey });
+    if (!keyData) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+
+    // Validate origin if specified
+    const origin = req.headers.origin;
+    if (keyData.allowedOrigins && keyData.allowedOrigins.length > 0) {
+      if (!origin || !keyData.allowedOrigins.includes(origin)) {
+        return res.status(403).json({ error: 'Origin not allowed' });
+      }
+    }
+
+    req.apiKeyData = keyData;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Error validating API key' });
+  }
+};
+
+// Update API Key Management endpoints
+app.post('/api/keys', authenticateToken, async (req, res) => {
+  try {
+    const { name, allowedOrigins } = req.body;
+    const key = uuidv4();
+    
+    const apiKey = new ApiKey({
+      key,
+      name,
+      allowedOrigins: allowedOrigins || [],
+      userId: req.user.id
+    });
+
+    await apiKey.save();
+    res.json({ apiKey: key });
+  } catch (error) {
+    res.status(500).json({ error: 'Error creating API key' });
+  }
+});
+
+app.get('/api/keys', authenticateToken, async (req, res) => {
+  try {
+    const keys = await ApiKey.find({ userId: req.user.id });
+    res.json(keys);
+  } catch (error) {
+    res.status(500).json({ error: 'Error fetching API keys' });
+  }
+});
+
+app.delete('/api/keys/:key', authenticateToken, async (req, res) => {
+  try {
+    const { key } = req.params;
+    const result = await ApiKey.findOneAndDelete({ key, userId: req.user.id });
+    
+    if (!result) {
+      return res.status(404).json({ error: 'API key not found' });
+    }
+    
+    res.json({ message: 'API key deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Error deleting API key' });
+  }
+});
+
+// Update Analytics endpoints
+app.post('/api/events', validateApiKey, async (req, res) => {
+  try {
+    const event = new Event({
+      ...req.body,
+      apiKey: req.headers['x-api-key']
+    });
+    
+    await event.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error tracking event' });
+  }
+});
+
+app.post('/api/pageviews', validateApiKey, async (req, res) => {
+  try {
+    const pageview = new Pageview({
+      ...req.body,
+      apiKey: req.headers['x-api-key']
+    });
+    
+    await pageview.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Error tracking pageview' });
+  }
+});
 
 const PORT = process.env.PORT || 5002;
 app.listen(PORT, () => {

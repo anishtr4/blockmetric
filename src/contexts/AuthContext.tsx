@@ -7,6 +7,20 @@ import { login as loginAction, register as registerAction, logout as logoutActio
 // Configure axios base URL
 axios.defaults.baseURL = import.meta.env.VITE_API_BASE_URL;
 
+// Add axios interceptor to include JWT token
+axios.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 interface AuthContextType {
   isAuthenticated: boolean;
   user: any;

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlockMetric SDK Demo</title>
+    <link href="https://cdn.jsdelivr.net/npm/@mui/joy@5/dist/styles/index.min.css" rel="stylesheet">
+    <style>
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }
+        .metric-card { padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .action-buttons { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 20px 0; }
+        .events-log { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 8px; height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>BlockMetric SDK Demo</h1>
+        
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <h3>Page Views</h3>
+                <p id="pageViews">0</p>
+            </div>
+            <div class="metric-card">
+                <h3>Events</h3>
+                <p id="eventCount">0</p>
+            </div>
+            <div class="metric-card">
+                <h3>Session Duration</h3>
+                <p id="sessionDuration">0s</p>
+            </div>
+
+        </div>
+
+        <div class="action-buttons">
+            <button onclick="simulatePageView()">Simulate Page View</button>
+            <button onclick="simulateCustomEvent()">Trigger Custom Event</button>
+            <button onclick="simulateUserInteraction()">Simulate User Interaction</button>
+        </div>
+
+        <div class="events-log">
+            <h3>Events Log</h3>
+            <pre id="eventsLog"></pre>
+        </div>
+    </div>
+
+    <script src="../blockmetric.js"></script>
+    <script>
+        // Initialize BlockMetric SDK
+        const analytics = new BlockmetricAnalytics('3e4b4873-c586-494e-9ed1-cd02fd57ad3d', {
+            endpoint: 'http://localhost:5002'
+        });
+        
+        let pageViewCount = 0;
+        let eventCount = 0;
+        const startTime = Date.now();
+
+        // Update session duration
+        setInterval(() => {
+            const duration = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('sessionDuration').textContent = `${duration}s`;
+        }, 1000);
+
+        // Simulate page view
+        // List of sample referrers to simulate real traffic sources
+        const sampleReferrers = [
+            'https://www.google.com/search?q=web+analytics',
+            'https://twitter.com/search?q=blockmetric',
+            'https://www.linkedin.com/company/blockmetric',
+            'https://www.producthunt.com/posts/blockmetric',
+            'https://github.com/blockmetric/analytics'
+        ];
+
+        function simulatePageView() {
+            // Set a random referrer before tracking the page view
+            Object.defineProperty(document, 'referrer', {
+                get: function() {
+                    return sampleReferrers[Math.floor(Math.random() * sampleReferrers.length)];
+                }
+            });
+            analytics.trackPageview('/demo/' + Math.random().toString(36).substring(7));
+            pageViewCount++;
+            document.getElementById('pageViews').textContent = pageViewCount;
+            logEvent('Page view tracked with referrer: ' + document.referrer);
+        }
+
+        // Simulate custom event
+        function simulateCustomEvent() {
+            analytics.trackEvent('custom_action', {
+                category: 'demo',
+                label: 'test_event',
+                value: Math.floor(Math.random() * 100)
+            });
+            eventCount++;
+            document.getElementById('eventCount').textContent = eventCount;
+            logEvent('Custom event tracked');
+        }
+
+        // Simulate user interaction
+        function simulateUserInteraction() {
+            analytics.trackEvent('user_interaction', {
+                type: 'click',
+                element: 'button',
+                position: { x: Math.random() * 100, y: Math.random() * 100 }
+            });
+            eventCount++;
+            document.getElementById('eventCount').textContent = eventCount;
+            logEvent('User interaction tracked');
+        }
+
+        // Log events to UI
+        function logEvent(message) {
+            const log = document.getElementById('eventsLog');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML = `${timestamp}: ${message}\n${log.innerHTML}`;
+        }
+
+        // Track initial page view
+        analytics.trackPageview();
+        pageViewCount++;
+        document.getElementById('pageViews').textContent = pageViewCount;
+        logEvent('Initial page view tracked');
+
+        // Update performance score
+        setTimeout(() => {
+            const score = Math.floor(Math.random() * 30 + 70);
+            document.getElementById('performanceScore').textContent = `${score}/100`;
+        }, 2000);
+    </script>
+</body>
+</html>

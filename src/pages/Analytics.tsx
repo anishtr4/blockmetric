@@ -1,73 +1,115 @@
 import { Grid, Card, CardContent, Typography, Box, Chip } from '@mui/joy';
-
-const performanceMetrics = {
-  pageLoad: { time: '1.8s', status: 'Good', average: '2.3s' },
-  firstPaint: { time: '2.1s', status: 'Fair', average: '1.8s' },
-  interactive: { time: '3.2s', status: 'Good', average: '3.9s' }
-};
-
-const deviceSpeeds = [
-  { device: 'Desktop', speed: '1.2s', status: 'good' },
-  { device: 'Mobile', speed: '2.8s', status: 'fair' },
-  { device: 'Tablet', speed: '1.9s', status: 'good' }
-];
-
-const resourceLoading = [
-  { type: 'HTML', time: '0.3s' },
-  { type: 'CSS', time: '0.5s' },
-  { type: 'JavaScript', time: '1.2s' },
-  { type: 'Images', time: '2.1s' }
-];
-
-const serverMetrics = [
-  { name: 'TTFB', value: '180ms' },
-  { name: 'DNS Lookup', value: '45ms' },
-  { name: 'TCP Connection', value: '120ms' }
-];
-
-const webVitals = [
-  { name: 'LCP', value: '2.1s' },
-  { name: 'FID', value: '75ms' },
-  { name: 'CLS', value: '0.1' }
-];
-
-const optimization = [
-  { name: 'Compression', status: 'Enabled' },
-  { name: 'Minification', status: 'Enabled' },
-  { name: 'Cache Status', status: 'Active' }
-];
-
-const visitorDemographics = [
-  { ageGroup: '18-24', percentage: 35 },
-  { ageGroup: '25-34', percentage: 45 },
-  { ageGroup: '35-44', percentage: 20 }
-];
-
-const geographicDistribution = [
-  { country: 'United States', visitors: 45234 },
-  { country: 'United Kingdom', visitors: 32651 },
-  { country: 'Germany', visitors: 24856 }
-];
-
-const devices = [
-  { type: 'Mobile', percentage: 65 },
-  { type: 'Desktop', percentage: 30 },
-  { type: 'Tablet', percentage: 5 }
-];
-
-const browsers = [
-  { name: 'Chrome', percentage: 60 },
-  { name: 'Safari', percentage: 25 },
-  { name: 'Firefox', percentage: 15 }
-];
-
-const operatingSystems = [
-  { name: 'iOS', percentage: 40 },
-  { name: 'Android', percentage: 35 },
-  { name: 'Windows', percentage: 25 }
-];
+import { useEffect, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../store/store';
+import { fetchAnalyticsData, fetchVisitorDemographics } from '../services/analyticsService';
 
 export default function Analytics() {
+  const selectedWebsite = useSelector((state: RootState) => state.website.selectedWebsite);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [demographicsData, setDemographicsData] = useState(null);
+  const [analyticsData, setAnalyticsData] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedWebsite) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        const [analytics, demographics] = await Promise.all([
+          fetchAnalyticsData(),
+          fetchVisitorDemographics()
+        ]);
+        
+        setAnalyticsData(analytics);
+        setDemographicsData(demographics);
+      } catch (err) {
+        setError('Failed to fetch analytics data');
+        console.error('Error fetching analytics:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [selectedWebsite]); // Re-fetch when selected website changes
+
+  if (loading) {
+    return <Typography>Loading...</Typography>;
+  }
+
+  if (error) {
+    return <Typography color="danger">{error}</Typography>;
+  }
+
+  if (!selectedWebsite) {
+    return <Typography>Please select a website to view analytics</Typography>;
+  }
+
+  const deviceSpeeds = [
+    { device: 'Desktop', speed: '1.2s', status: 'good' },
+    { device: 'Mobile', speed: '2.8s', status: 'fair' },
+    { device: 'Tablet', speed: '1.9s', status: 'good' }
+  ];
+
+  const resourceLoading = [
+    { type: 'HTML', time: '0.3s' },
+    { type: 'CSS', time: '0.5s' },
+    { type: 'JavaScript', time: '1.2s' },
+    { type: 'Images', time: '2.1s' }
+  ];
+
+  const serverMetrics = [
+    { name: 'TTFB', value: '180ms' },
+    { name: 'DNS Lookup', value: '45ms' },
+    { name: 'TCP Connection', value: '120ms' }
+  ];
+
+  const webVitals = [
+    { name: 'LCP', value: '2.1s' },
+    { name: 'FID', value: '75ms' },
+    { name: 'CLS', value: '0.1' }
+  ];
+
+  const optimization = [
+    { name: 'Compression', status: 'Enabled' },
+    { name: 'Minification', status: 'Enabled' },
+    { name: 'Cache Status', status: 'Active' }
+  ];
+
+  const visitorDemographics = [
+    { ageGroup: '18-24', percentage: 35 },
+    { ageGroup: '25-34', percentage: 45 },
+    { ageGroup: '35-44', percentage: 20 }
+  ];
+
+  const geographicDistribution = [
+    { country: 'United States', visitors: 45234 },
+    { country: 'United Kingdom', visitors: 32651 },
+    { country: 'Germany', visitors: 24856 }
+  ];
+
+  const devices = [
+    { type: 'Mobile', percentage: 65 },
+    { type: 'Desktop', percentage: 30 },
+    { type: 'Tablet', percentage: 5 }
+  ];
+
+  const browsers = [
+    { name: 'Chrome', percentage: 60 },
+    { name: 'Safari', percentage: 25 },
+    { name: 'Firefox', percentage: 15 }
+  ];
+
+  const operatingSystems = [
+    { name: 'iOS', percentage: 40 },
+    { name: 'Android', percentage: 35 },
+    { name: 'Windows', percentage: 25 }
+  ];
+
   return (
     <Box sx={{ py: 2 }}>
       <Typography level="h2" sx={{ mb: 3 }}>
@@ -78,7 +120,7 @@ export default function Analytics() {
       </Typography>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        {Object.entries(performanceMetrics).map(([key, data]) => (
+        {performanceMetrics && Object.entries(performanceMetrics).map(([key, data]) => (
           <Grid xs={12} md={4} key={key}>
             <Card>
               <CardContent>

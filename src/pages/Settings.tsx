@@ -1,4 +1,5 @@
 import { Box, Card, CardContent, Typography, FormControl, FormLabel, Input, Switch, Select, Option, Button, Sheet, Avatar } from '@mui/joy';
+import ApiKeyManager from '../components/ApiKeyManager';
 
 export default function Settings() {
   return (
@@ -12,30 +13,7 @@ export default function Settings() {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Typography level="h4" component="h3" sx={{ mb: 2 }}>
-            API Access
-          </Typography>
-          <FormControl sx={{ mb: 3 }}>
-            <FormLabel>API Key</FormLabel>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-              <Input
-                value="sk_live_xxxxxxxxxxxxxxxx"
-                sx={{ flexGrow: 1 }}
-                readOnly
-              />
-              <Button variant="solid" color="primary">
-                Copy
-              </Button>
-            </Box>
-          </FormControl>
-          <FormControl>
-            <FormLabel>Webhook URL</FormLabel>
-            <Input
-              value="https://api.example.com/webhook"
-              sx={{ fontFamily: 'monospace' }}
-              readOnly
-            />
-          </FormControl>
+          <ApiKeyManager />
         </CardContent>
       </Card>
 
