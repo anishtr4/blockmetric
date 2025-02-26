@@ -52,6 +52,8 @@ interface ActivityData {
   location: string;
   action: string;
   page: string;
+  type: 'page_view' | 'click' | 'form_submit' | 'custom' | string;
+  formatted_time: string;
 }
 
 interface UserMetrics {

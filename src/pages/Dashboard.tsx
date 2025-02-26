@@ -61,32 +61,32 @@ export default function Dashboard() {
   const metrics = [
     { 
       title: 'Total Visitors', 
-      value: analyticsData?.uniqueVisitors?.toLocaleString() || '0', 
-      change: analyticsData?.visitorChange || '0%' 
+      value: analyticsData?.currentPeriod?.uniqueVisitors?.toLocaleString() || '0', 
+      change: analyticsData?.changes?.uniqueVisitors + '%' || '0%' 
     },
     { 
       title: 'Average Session Duration', 
-      value: analyticsData?.averageSessionDuration || '0s', 
-      change: analyticsData?.sessionDurationChange || '0%' 
+      value: `${analyticsData?.currentPeriod?.avgSessionDuration || '0'}s`, 
+      change: '0%' 
     },
     { 
       title: 'Bounce Rate', 
-      value: analyticsData?.bounceRate?.toFixed(1) + '%' || '0%', 
-      change: analyticsData?.bounceRateChange || '0%' 
+      value: `${analyticsData?.currentPeriod?.bounceRate || '0'}%`, 
+      change: '0%' 
     },
     { 
       title: 'Page Views', 
-      value: analyticsData?.totalPageViews?.toLocaleString() || '0', 
-      change: analyticsData?.pageViewsChange || '0%' 
+      value: analyticsData?.currentPeriod?.totalPageViews?.toLocaleString() || '0', 
+      change: analyticsData?.changes?.totalPageViews + '%' || '0%' 
     }
   ];
 
   const visitorData = analyticsData?.visitorsByTime || [];
   const activePages = analyticsData?.topPages || [];
-  const devices = analyticsData?.deviceStats || [];
-  const browsers = analyticsData?.browserStats || [];
-  const operatingSystems = analyticsData?.osStats || [];
-  const userActivity = analyticsData?.userActivity || [];
+  const devices = analyticsData?.deviceAnalytics?.deviceDistribution || [];
+  const browsers = analyticsData?.deviceAnalytics?.browserUsage || [];
+  const operatingSystems = analyticsData?.deviceAnalytics?.operatingSystems || [];
+  const recentActivity = analyticsData?.recentActivity || [];
 
   return (
     <Box sx={{ py: 2 }}>
@@ -236,20 +236,20 @@ export default function Dashboard() {
                     <tr key={index}>
                       <td>
                         <Typography level="body-sm" sx={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>
-                          {page.page}
+                          {page.url}
                         </Typography>
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <Typography level="body-sm">
                           {page.views.toLocaleString()}
                         </Typography>
-                        <Typography level="body-xs" sx={{ color: page.change.startsWith('-') ? 'danger.500' : 'success.500' }}>
+                        {/* <Typography level="body-xs" sx={{ color: page.change.startsWith('-') ? 'danger.500' : 'success.500' }}>
                           {page.change}
-                        </Typography>
+                        </Typography> */}
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
-                          {page.avgTime || '0s'}
+                          {page.avgTimeOnPage || '0s'}
                         </Typography>
                       </td>
                     </tr>
@@ -287,17 +287,28 @@ export default function Dashboard() {
                 <thead>
                   <tr>
                     <th style={{ width: '120px' }}>Time</th>
+                    <th style={{ width: '100px' }}>Type</th>
                     <th>Action</th>
                     <th>Page</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {userActivity.map((activity, index) => (
+                  {recentActivity.map((activity, index) => (
                     <tr key={index}>
                       <td>
                         <Typography level="body-sm" sx={{ fontWeight: 500 }}>
-                          {activity.formatted_time}
+                          {activity.timestamp}
                         </Typography>
+                      </td>
+                      <td>
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color={activity.type ? (activity.type === 'page_view' ? 'primary' : activity.type === 'click' ? 'success' : 'neutral') : 'neutral'}
+                          sx={{ fontSize: 'xs' }}
+                        >
+                          {activity.type || 'page_view'}
+                        </Chip>
                       </td>
                       <td>
                         <Typography level="body-sm" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '150px' }}>
@@ -326,7 +337,7 @@ export default function Dashboard() {
               {devices.map((device, index) => (
                 <Box key={index} sx={{ mb: 2 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography level="body-sm" sx={{ fontWeight: 500 }}>{device.name}</Typography>
+                    <Typography level="body-sm" sx={{ fontWeight: 500 }}>{device.type}</Typography>
                     <Typography level="body-sm" sx={{ fontWeight: 600 }}>{device.percentage}%</Typography>
                   </Box>
                   <Box
