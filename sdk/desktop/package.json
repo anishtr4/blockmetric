@@ -1,0 +1,28 @@
+{
+  "name": "@blockmetric/desktop",
+  "version": "1.0.0",
+  "description": "BlockMetric Analytics SDK for Desktop Applications",
+  "main": "blockmetric.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "analytics",
+    "tracking",
+    "electron",
+    "desktop",
+    "metrics"
+  ],
+  "author": "BlockMetric",
+  "license": "MIT",
+  "dependencies": {
+    "electron": "^25.0.0",
+    "node-fetch": "^2.6.11"
+  },
+  "peerDependencies": {
+    "electron": ">=20.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

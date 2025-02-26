@@ -2,7 +2,7 @@ import { Grid, Card, CardContent, Typography, Box, Chip } from '@mui/joy';
 import { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store/store';
-import { fetchAnalyticsData, fetchVisitorDemographics } from '../services/analyticsService';
+import { fetchAnalyticsData, fetchVisitorDemographics, fetchUserMetrics } from '../services/analyticsService';
 
 export default function Analytics() {
   const selectedWebsite = useSelector((state: RootState) => state.website.selectedWebsite);
@@ -10,6 +10,7 @@ export default function Analytics() {
   const [error, setError] = useState<string | null>(null);
   const [demographicsData, setDemographicsData] = useState(null);
   const [analyticsData, setAnalyticsData] = useState(null);
+  const [userMetrics, setUserMetrics] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -19,13 +20,15 @@ export default function Analytics() {
       setError(null);
       
       try {
-        const [analytics, demographics] = await Promise.all([
+        const [analytics, demographics, metrics] = await Promise.all([
           fetchAnalyticsData(),
-          fetchVisitorDemographics()
+          fetchVisitorDemographics(),
+          fetchUserMetrics()
         ]);
         
         setAnalyticsData(analytics);
         setDemographicsData(demographics);
+        setUserMetrics(metrics);
       } catch (err) {
         setError('Failed to fetch analytics data');
         console.error('Error fetching analytics:', err);
@@ -55,19 +58,6 @@ export default function Analytics() {
     { device: 'Tablet', speed: '1.9s', status: 'good' }
   ];
 
-  const resourceLoading = [
-    { type: 'HTML', time: '0.3s' },
-    { type: 'CSS', time: '0.5s' },
-    { type: 'JavaScript', time: '1.2s' },
-    { type: 'Images', time: '2.1s' }
-  ];
-
-  const serverMetrics = [
-    { name: 'TTFB', value: '180ms' },
-    { name: 'DNS Lookup', value: '45ms' },
-    { name: 'TCP Connection', value: '120ms' }
-  ];
-
   const webVitals = [
     { name: 'LCP', value: '2.1s' },
     { name: 'FID', value: '75ms' },
@@ -80,306 +70,146 @@ export default function Analytics() {
     { name: 'Cache Status', status: 'Active' }
   ];
 
-  const visitorDemographics = [
-    { ageGroup: '18-24', percentage: 35 },
-    { ageGroup: '25-34', percentage: 45 },
-    { ageGroup: '35-44', percentage: 20 }
-  ];
-
-  const geographicDistribution = [
-    { country: 'United States', visitors: 45234 },
-    { country: 'United Kingdom', visitors: 32651 },
-    { country: 'Germany', visitors: 24856 }
-  ];
-
-  const devices = [
-    { type: 'Mobile', percentage: 65 },
-    { type: 'Desktop', percentage: 30 },
-    { type: 'Tablet', percentage: 5 }
-  ];
-
-  const browsers = [
-    { name: 'Chrome', percentage: 60 },
-    { name: 'Safari', percentage: 25 },
-    { name: 'Firefox', percentage: 15 }
-  ];
-
-  const operatingSystems = [
-    { name: 'iOS', percentage: 40 },
-    { name: 'Android', percentage: 35 },
-    { name: 'Windows', percentage: 25 }
-  ];
+  // Use real data from the API response
+  const devices = analyticsData?.deviceStats || [];
+  const browsers = analyticsData?.browserStats || [];
+  const operatingSystems = analyticsData?.osStats || [];
 
   return (
-    <Box sx={{ py: 2 }}>
+    <Box sx={{ py: 3 }}>
       <Typography level="h2" sx={{ mb: 3 }}>
-        Performance Metrics
-      </Typography>
-      <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
-        Website speed and performance analysis
+        Analytics Overview
       </Typography>
 
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {performanceMetrics && Object.entries(performanceMetrics).map(([key, data]) => (
-          <Grid xs={12} md={4} key={key}>
-            <Card>
-              <CardContent>
-                <Typography level="body-sm" sx={{ mb: 1 }}>
-                  {key === 'pageLoad' ? 'Page Load Time' :
-                   key === 'firstPaint' ? 'First Contentful Paint' :
-                   'Time to Interactive'}
-                </Typography>
-                <Typography level="h2" sx={{ mb: 1 }}>{data.time}</Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={data.status === 'Good' ? 'success' : 'warning'}
+      <Grid container spacing={3}>
+        {/* User Metrics Section */}
+        <Grid xs={12}>
+          <Typography level="h4" sx={{ mb: 2 }}>Usage Metrics</Typography>
+          <Grid container spacing={2}>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <Typography level="h5" sx={{ mb: 2 }}>Monthly Active Users</Typography>
+                  <Box>
+                    <Typography level="h2" sx={{ mb: 1 }}>{userMetrics?.mau || '0'}</Typography>
+                    <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                      vs. last month: {userMetrics?.mauChange || '0%'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <Typography level="h5" sx={{ mb: 2 }}>Daily Active Users</Typography>
+                  <Box>
+                    <Typography level="h2" sx={{ mb: 1 }}>{userMetrics?.dau || '0'}</Typography>
+                    <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                      vs. yesterday: {userMetrics?.dauChange || '0%'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid xs={12} sm={4}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <Typography level="h5" sx={{ mb: 2 }}>Hourly Active Users</Typography>
+                  <Box>
+                    <Typography level="h2" sx={{ mb: 1 }}>{userMetrics?.hau || '0'}</Typography>
+                    <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                      vs. last hour: {userMetrics?.hauChange || '0%'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Grid>
+
+        {/* Geographic Distribution */}
+        <Grid xs={12}>
+          <Card sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography level="h4" sx={{ mb: 2 }}>Geographic Distribution</Typography>
+              {demographicsData?.geographicDistribution?.map((location) => (
+                <Box key={location.country} sx={{ mb: 2 }}>
+                  <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography>{location.name}</Typography>
+                    <Typography>{location.percentage}%</Typography>
+                  </Box>
+                  <Box
+                    sx={{
+                      width: '100%',
+                      height: '8px',
+                      bgcolor: 'background.level2',
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}
                   >
-                    {data.status}
-                  </Chip>
-                  <Typography level="body-xs" sx={{ color: 'text.secondary' }}>
-                    vs. {data.average} industry average
-                  </Typography>
+                    <Box
+                      sx={{
+                        width: `${location.percentage}%`,
+                        height: '100%',
+                        bgcolor: 'primary.500'
+                      }}
+                    />
+                  </Box>
+                </Box>
+              )) || (
+                <Typography level="body-sm" sx={{ color: 'text.secondary' }}>
+                  No geographic data available
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Performance Metrics and Web Vitals Row */}
+        <Grid xs={12} container spacing={2}>
+          {/* Performance Metrics */}
+          <Grid xs={12} md={6}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent>
+                <Typography level="h4" sx={{ mb: 2 }}>Performance Metrics</Typography>
+                <Grid container spacing={2}>
+                  {deviceSpeeds.map((item) => (
+                    <Grid xs={12} md={4} key={item.device}>
+                      <Box sx={{ mb: 2 }}>
+                        <Typography level="h5" sx={{ mb: 1 }}>{item.device}</Typography>
+                        <Typography level="h3" sx={{ mb: 1 }}>{item.speed}</Typography>
+                        <Chip
+                          size="sm"
+                          variant="soft"
+                          color={item.status === 'good' ? 'success' : 'warning'}
+                        >
+                          {item.status}
+                        </Chip>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Web Vitals */}
+          <Grid xs={12} md={6}>
+            <Card sx={{ height: '100%' }}>
+              <CardContent>
+                <Typography level="h4" sx={{ mb: 2 }}>Web Vitals</Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {webVitals.map((vital) => (
+                    <Box key={vital.name} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography level="h5">{vital.name}</Typography>
+                      <Typography level="h5">{vital.value}</Typography>
+                    </Box>
+                  ))}
                 </Box>
               </CardContent>
             </Card>
           </Grid>
-        ))}
-      </Grid>
-
-      <Typography level="h2" sx={{ mb: 3 }}>
-        Visitor Demographics
-      </Typography>
-      <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
-        Detailed visitor demographics and behavior analysis
-      </Typography>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Age Distribution</Typography>
-              {visitorDemographics.map((item) => (
-                <Box key={item.ageGroup} sx={{ mb: 2 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography level="body-sm">{item.ageGroup}</Typography>
-                    <Typography level="body-sm">{item.percentage}%</Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: '8px',
-                      bgcolor: 'background.level2',
-                      borderRadius: '4px',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: `${item.percentage}%`,
-                        height: '100%',
-                        bgcolor: '#2196f3',
-                        transition: 'width 0.5s ease-in-out'
-                      }}
-                    />
-                  </Box>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Geographic Distribution</Typography>
-              {geographicDistribution.map((item) => (
-                <Box key={item.country} sx={{ mb: 2 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography level="body-sm">{item.country}</Typography>
-                    <Typography level="body-sm">{item.visitors.toLocaleString()}</Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: '8px',
-                      bgcolor: 'background.level2',
-                      borderRadius: '4px',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: `${(item.visitors / Math.max(...geographicDistribution.map(x => x.visitors)) * 100)}%`,
-                        height: '100%',
-                        bgcolor: '#4caf50',
-                        transition: 'width 0.5s ease-in-out'
-                      }}
-                    />
-                  </Box>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Typography level="h2" sx={{ mb: 3 }}>
-        Technical Performance
-      </Typography>
-      <Typography level="body-sm" sx={{ mb: 3, color: 'text.secondary' }}>
-        Detailed technical metrics and performance analysis
-      </Typography>
-
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Page Speed by Device</Typography>
-              {deviceSpeeds.map((device) => (
-                <Box key={device.device} sx={{ mb: 2 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                    <Typography level="body-sm">{device.device}</Typography>
-                    <Typography level="body-sm">{device.speed}</Typography>
-                  </Box>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      height: '8px',
-                      bgcolor: 'background.level2',
-                      borderRadius: '4px',
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: device.device === 'Desktop' ? '80%' : device.device === 'Mobile' ? '60%' : '70%',
-                        height: '100%',
-                        bgcolor: device.status === 'good' ? 'success.500' : 'warning.500',
-                        transition: 'width 0.5s ease-in-out'
-                      }}
-                    />
-                  </Box>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={6}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Resource Loading</Typography>
-              {resourceLoading.map((resource) => (
-                <Box
-                  key={resource.type}
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    mb: 2
-                  }}
-                >
-                  <Typography level="body-sm">{resource.type}</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Typography level="body-sm">{resource.time}</Typography>
-                    <Box
-                      sx={{
-                        width: '100px',
-                        height: '8px',
-                        bgcolor: 'background.level2',
-                        borderRadius: '4px',
-                        overflow: 'hidden'
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: resource.type === 'HTML' ? '90%' : 
-                                resource.type === 'CSS' ? '85%' : 
-                                resource.type === 'JavaScript' ? '70%' : '50%',
-                          height: '100%',
-                          bgcolor: resource.type === 'HTML' ? '#2196f3' : 
-                                  resource.type === 'CSS' ? '#2196f3' : 
-                                  resource.type === 'JavaScript' ? '#ffc107' : '#f44336',
-                          transition: 'width 0.5s ease-in-out'
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Grid container spacing={2}>
-        <Grid xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Server Response</Typography>
-              {serverMetrics.map((metric) => (
-                <Box
-                  key={metric.name}
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    mb: 2
-                  }}
-                >
-                  <Typography level="body-sm">{metric.name}</Typography>
-                  <Typography level="body-sm">{metric.value}</Typography>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Core Web Vitals</Typography>
-              {webVitals.map((vital) => (
-                <Box
-                  key={vital.name}
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    mb: 2
-                  }}
-                >
-                  <Typography level="body-sm">{vital.name}</Typography>
-                  <Typography level="body-sm">{vital.value}</Typography>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid xs={12} md={4}>
-          <Card>
-            <CardContent>
-              <Typography level="h4" sx={{ mb: 2 }}>Asset Optimization</Typography>
-              {optimization.map((opt) => (
-                <Box
-                  key={opt.name}
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    mb: 2
-                  }}
-                >
-                  <Typography level="body-sm">{opt.name}</Typography>
-                  <Typography
-                    level="body-sm"
-                    sx={{ color: 'success.main' }}
-                  >
-                    {opt.status}
-                  </Typography>
-                </Box>
-              ))}
-            </CardContent>
-          </Card>
         </Grid>
       </Grid>
     </Box>

@@ -44,8 +44,6 @@ export function WebsiteProvider({ children }: { children: ReactNode }) {
     if (!website) return;
     // Find the complete website object from the websites array
     const completeWebsite = websites.find(w => w.id === website);
-    console.log('completeWebsite',completeWebsite);
-    console.log('website',website);
     if (!completeWebsite) {
       console.warn('Website not found in the websites array');
       return;

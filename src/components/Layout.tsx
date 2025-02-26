@@ -76,7 +76,7 @@ export default function Layout({ children }: LayoutProps) {
 
         <Select
           placeholder="Select Website"
-          value={selectedWebsite}
+          value={selectedWebsite?.id}
           onChange={(_, value) => setSelectedWebsite(value as string)}
           startDecorator={<LanguageIcon />}
           sx={{ mb: 2 }}

@@ -48,8 +48,8 @@
     <script src="../blockmetric.js"></script>
     <script>
         // Initialize BlockMetric SDK
-        const analytics = new BlockmetricAnalytics('3e4b4873-c586-494e-9ed1-cd02fd57ad3d', {
-            endpoint: 'http://localhost:5002'
+        const analytics = new BlockmetricAnalytics('8edaca21-2d24-4839-8624-0f9daf32219f', {
+            endpoint: 'http://0.0.0.0:5002'
         });
         
         let pageViewCount = 0;
@@ -73,16 +73,17 @@
         ];
 
         function simulatePageView() {
-            // Set a random referrer before tracking the page view
-            Object.defineProperty(document, 'referrer', {
-                get: function() {
-                    return sampleReferrers[Math.floor(Math.random() * sampleReferrers.length)];
-                }
+            // Get a random referrer from the sample list
+            const simulatedReferrer = sampleReferrers[Math.floor(Math.random() * sampleReferrers.length)];
+            
+            // Track page view with the simulated referrer as custom data
+            analytics.trackPageview('/demo/' + Math.random().toString(36).substring(7), {
+                referrer: simulatedReferrer
             });
-            analytics.trackPageview('/demo/' + Math.random().toString(36).substring(7));
+            
             pageViewCount++;
             document.getElementById('pageViews').textContent = pageViewCount;
-            logEvent('Page view tracked with referrer: ' + document.referrer);
+            logEvent('Page view tracked with referrer: ' + simulatedReferrer);
         }
 
         // Simulate custom event
@@ -121,12 +122,6 @@
         pageViewCount++;
         document.getElementById('pageViews').textContent = pageViewCount;
         logEvent('Initial page view tracked');
-
-        // Update performance score
-        setTimeout(() => {
-            const score = Math.floor(Math.random() * 30 + 70);
-            document.getElementById('performanceScore').textContent = `${score}/100`;
-        }, 2000);
     </script>
 </body>
 </html>

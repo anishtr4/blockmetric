@@ -1,22 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Button, Input, Typography, Sheet } from '@mui/joy';
+import { Box, Button, Input, Typography, Sheet, IconButton } from '@mui/joy';
 import { getApiKeys, createApiKey, deleteApiKey } from '../services/apiKeyService';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
 const ApiKeyManager = () => {
   interface ApiKey {
-    id: string;
-    value: string;
+    _id: string;
+    key: string;
+    name: string;
     allowedOrigins: string[];
+    createdAt: string;
   }
 
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [newOrigin, setNewOrigin] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [visibleKeys, setVisibleKeys] = useState<{[key: string]: boolean}>({});
 
   useEffect(() => {
     fetchApiKeys();
   }, []);
+
+  const toggleKeyVisibility = (keyId: string) => {
+    setVisibleKeys(prev => ({
+      ...prev,
+      [keyId]: !prev[keyId]
+    }));
+  };
 
   const fetchApiKeys = async () => {
     try {
@@ -56,46 +67,21 @@ const ApiKeyManager = () => {
     }
   };
 
-  const addOrigin = async (keyId) => {
-    if (!newOrigin) return;
-
-    try {
-      setLoading(true);
-      await axios.post(`/api/keys/${keyId}/origins`, { origin: newOrigin });
-      const updatedKeys = apiKeys.map(key => {
-        if (key.id === keyId) {
-          return {
-            ...key,
-            allowedOrigins: [...key.allowedOrigins, newOrigin]
-          };
-        }
-        return key;
-      });
-      setApiKeys(updatedKeys);
-      setNewOrigin('');
-    } catch (err) {
-      setError('Failed to add origin');
-    } finally {
-      setLoading(false);
+  const removeApiKey = async (key: string) => {
+    if (!key || typeof key !== 'string') {
+      setError('Invalid API key');
+      return;
     }
-  };
 
-  const removeOrigin = async (keyId, origin) => {
     try {
       setLoading(true);
-      await axios.delete(`/api/keys/${keyId}/origins/${encodeURIComponent(origin)}`);
-      const updatedKeys = apiKeys.map(key => {
-        if (key.id === keyId) {
-          return {
-            ...key,
-            allowedOrigins: key.allowedOrigins.filter(o => o !== origin)
-          };
-        }
-        return key;
-      });
+      setError(null);
+      await deleteApiKey(key);
+      const updatedKeys = apiKeys.filter(apiKey => apiKey.key !== key);
       setApiKeys(updatedKeys);
-    } catch (err) {
-      setError('Failed to remove origin');
+    } catch (err: any) {
+      console.error('Error deleting API key:', err);
+      setError(err.response?.data?.message || 'Failed to delete API key');
     } finally {
       setLoading(false);
     }
@@ -103,7 +89,7 @@ const ApiKeyManager = () => {
 
   return (
     <Box sx={{ p: 2, maxWidth: 800, mx: 'auto' }}>
-      <Typography level="h2">API Key Management</Typography>
+      <Typography level="h2" sx={{ mb: 2, color: 'primary.600', fontSize: '1.5rem' }}>API Key Management</Typography>
       
       {error && (
         <Typography color="danger" sx={{ mb: 2 }}>
@@ -116,37 +102,41 @@ const ApiKeyManager = () => {
         sx={{ 
           p: 2,
           mb: 3,
-          borderRadius: 'sm'
+          borderRadius: 'md',
+          boxShadow: 'sm',
+          bgcolor: 'background.surface'
         }}
       >
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Enter API Key Name"
+            placeholder="API Key Name"
             disabled={loading}
-            sx={{ mb: 1 }}
-            fullWidth
+            size="sm"
+            sx={{ flex: 1 }}
           />
-        </Box>
-        <Box sx={{ mb: 2 }}>
           <Input
             value={newAllowedOrigins}
             onChange={(e) => setNewAllowedOrigins(e.target.value)}
-            placeholder="Enter allowed origins (comma-separated)"
+            placeholder="Allowed origins (comma-separated)"
             disabled={loading}
-            sx={{ mb: 1 }}
-            fullWidth
+            size="sm"
+            sx={{ flex: 2 }}
           />
+          <Button 
+            onClick={generateApiKey} 
+            disabled={loading}
+            loading={loading}
+            size="sm"
+            sx={{ 
+              bgcolor: 'primary.500',
+              '&:hover': { bgcolor: 'primary.600' }
+            }}
+          >
+            Generate Key
+          </Button>
         </Box>
-        <Button 
-          onClick={generateApiKey} 
-          disabled={loading}
-          loading={loading}
-          sx={{ width: '100%' }}
-        >
-          Generate New API Key
-        </Button>
       </Sheet>
 
       {loading && (
@@ -158,71 +148,69 @@ const ApiKeyManager = () => {
       <Box sx={{ mt: 3 }}>
         {apiKeys.map(key => (
           <Sheet
-            key={key.id}
+            key={key._id}
             variant="outlined"
             sx={{
               p: 2,
               mb: 2,
-              borderRadius: 'sm'
+              borderRadius: 'md',
+              boxShadow: 'sm',
+              bgcolor: 'background.surface'
             }}
           >
-            <Typography
-              component="pre"
-              sx={{
-                p: 1,
-                mb: 2,
-                bgcolor: 'background.level1',
-                borderRadius: 'sm',
-                fontFamily: 'monospace'
-              }}
-            >
-              {key.value}
-            </Typography>
-            
-            <Box sx={{ mt: 2 }}>
-              <Typography level="h4" sx={{ mb: 1 }}>Allowed Origins</Typography>
-              <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                <Input
-                  value={newOrigin}
-                  onChange={(e) => setNewOrigin(e.target.value)}
-                  placeholder="Enter new origin (e.g., https://example.com)"
-                  sx={{ flexGrow: 1 }}
-                />
-                <Button 
-                  onClick={() => addOrigin(key.id)}
-                  disabled={loading || !newOrigin}
-                >
-                  Add Origin
-                </Button>
-              </Box>
-              
-              <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
-                {key.allowedOrigins?.map(origin => (
-                  <Box
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography level="title-md" sx={{ color: 'primary.600' }}>{key.name}</Typography>
+              <Button
+                color="danger"
+                variant="soft"
+                onClick={() => removeApiKey(key.key)}
+                disabled={loading}
+                size="sm"
+              >
+                Remove
+              </Button>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography
+                component="pre"
+                sx={{
+                  p: 1,
+                  bgcolor: 'background.level1',
+                  borderRadius: 'md',
+                  fontFamily: 'monospace',
+                  m: 0,
+                  flex: 1,
+                  fontSize: '0.75rem'
+                }}
+              >
+                {visibleKeys[key._id] ? key.key : '•'.repeat(32)}
+              </Typography>
+              <IconButton
+                onClick={() => toggleKeyVisibility(key._id)}
+                sx={{ color: 'neutral.500' }}
+                size="sm"
+              >
+                {visibleKeys[key._id] ? <VisibilityOffIcon /> : <VisibilityIcon />}
+              </IconButton>
+            </Box>
+            {key.allowedOrigins?.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {key.allowedOrigins.map(origin => (
+                  <Typography
                     key={origin}
-                    component="li"
+                    level="body-xs"
                     sx={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      p: 1,
-                      borderBottom: '1px solid',
-                      borderColor: 'divider'
+                      p: 0.5,
+                      borderRadius: 'sm',
+                      bgcolor: 'background.level1',
+                      fontSize: '0.75rem'
                     }}
                   >
                     {origin}
-                    <Button
-                      onClick={() => removeOrigin(key.id, origin)}
-                      disabled={loading}
-                      color="danger"
-                      size="sm"
-                    >
-                      Remove
-                    </Button>
-                  </Box>
+                  </Typography>
                 ))}
               </Box>
-            </Box>
+            )}
           </Sheet>
         ))}
       </Box>

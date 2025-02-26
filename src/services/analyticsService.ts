@@ -28,6 +28,8 @@ interface PageData {
   page: string;
   views: number;
   change: string;
+  avgTime: string;
+  avgTimeChange?: string;
 }
 
 interface DeviceData {
@@ -52,6 +54,31 @@ interface ActivityData {
   page: string;
 }
 
+interface UserMetrics {
+  mau: number;
+  dau: number;
+  hau: number;
+  mauChange: string;
+  dauChange: string;
+  hauChange: string;
+}
+
+export const fetchUserMetrics = async (): Promise<UserMetrics> => {
+  const state = store.getState();
+  const apiKey = state.website.selectedWebsite?.value;
+
+  if (!apiKey) {
+    throw new Error('No website selected or API key not found');
+  }
+
+  const response = await axios.get('/api/analytics/user-metrics', {
+    headers: {
+      'x-api-key': apiKey
+    }
+  });
+  return response.data;
+};
+
 export const fetchAnalyticsData = async (): Promise<AnalyticsData> => {
   const state = store.getState();
   const apiKey = state.website.selectedWebsite?.value;
@@ -60,7 +87,7 @@ export const fetchAnalyticsData = async (): Promise<AnalyticsData> => {
     throw new Error('No website selected or API key not found');
   }
 
-  const response = await axios.get('/api/analytics/data', {
+  const response = await axios.get('/api/analytics/dashboard-metrics', {
     headers: {
       'x-api-key': apiKey
     }
@@ -70,13 +97,34 @@ export const fetchAnalyticsData = async (): Promise<AnalyticsData> => {
 
 export const fetchVisitorDemographics = async () => {
   const state = store.getState();
-  const apiKey = state.website.selectedWebsite?.apiKey;
+  const apiKey = state.website.selectedWebsite?.value;
 
   if (!apiKey) {
     throw new Error('No website selected or API key not found');
   }
 
   const response = await axios.get('/api/analytics/demographics', {
+    headers: {
+      'x-api-key': apiKey
+    }
+  });
+  return response.data;
+};
+
+export type TimeRange = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export const fetchVisitorTrends = async (timeRange: TimeRange = 'daily'): Promise<VisitorTimeData[]> => {
+  const state = store.getState();
+  const apiKey = state.website.selectedWebsite?.value;
+
+  if (!apiKey) {
+    throw new Error('No website selected or API key not found');
+  }
+
+  const response = await axios.get('/api/analytics/visitor-trends', {
+    params: {
+      timeRange
+    },
     headers: {
       'x-api-key': apiKey
     }
