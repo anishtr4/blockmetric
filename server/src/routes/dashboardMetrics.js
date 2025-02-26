@@ -1,252 +1,226 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../db/config');
+const { Op } = require('sequelize');
+const sequelize = require('../db/sequelize');
+const Pageview = require('../models/Pageview');
 
 // GET /api/analytics/dashboard-metrics - Get dashboard metrics
-router.get('/dashboard-metrics', async (req, res) => {
+const { validateApiKey } = require('../middleware/auth');
+
+router.get('/dashboard-metrics', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
     const previousThirtyDays = new Date(Date.now() - (60 * 24 * 60 * 60 * 1000));
 
-    // Get current period metrics
-    const [currentMetrics] = await pool.query(
-      `WITH session_durations AS (
-        SELECT 
-          session_id,
-          TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) as duration
-        FROM pageviews
-        WHERE api_key = ? AND timestamp >= ?
-        GROUP BY session_id
-       ),
-       bounce_metrics AS (
-        SELECT
-          COUNT(DISTINCT session_id) as total_sessions,
-          SUM(CASE WHEN pageviews = 1 THEN 1 ELSE 0 END) as bounce_sessions
-        FROM (
-          SELECT session_id, COUNT(*) as pageviews
-          FROM pageviews
-          WHERE api_key = ? AND timestamp >= ?
-          GROUP BY session_id
-        ) session_counts
-       )
-       SELECT 
-        COUNT(DISTINCT p.visitorId) as uniqueVisitors,
-        COUNT(*) as totalPageViews,
-        AVG(sd.duration) as avgSessionDuration,
-        (bm.bounce_sessions * 100.0 / NULLIF(bm.total_sessions, 0)) as bounceRate
-       FROM pageviews p
-       LEFT JOIN session_durations sd ON TRUE
-       CROSS JOIN bounce_metrics bm
-       WHERE p.api_key = ? AND p.timestamp >= ?
-       GROUP BY bm.bounce_sessions, bm.total_sessions`,
-      [apiKey, thirtyDaysAgo, apiKey, thirtyDaysAgo, apiKey, thirtyDaysAgo]
-    );
+    // Get current period metrics using Sequelize
+    const currentMetrics = await Pageview.findOne({
+      attributes: [
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('visitorId'))), 'uniqueVisitors'],
+        [sequelize.fn('COUNT', sequelize.col('*')), 'totalPageViews'],
+        [sequelize.literal(`
+          CAST(
+            (SELECT COUNT(DISTINCT s.session_id) 
+            FROM pageviews s 
+            WHERE s.api_key = '${req.apiKeyData.key}' 
+            AND s.timestamp >= '${thirtyDaysAgo.toISOString()}' 
+            AND s.session_id IN (
+              SELECT session_id 
+              FROM pageviews 
+              WHERE api_key = '${req.apiKeyData.key}' 
+              GROUP BY session_id 
+              HAVING COUNT(*) = 1
+            )
+          ) * 100.0 / NULLIF(COUNT(DISTINCT session_id), 0) AS DECIMAL(10,2))
+        `), 'bounceRate'],
+        [sequelize.literal(`
+          CAST(
+            AVG(
+              TIMESTAMPDIFF(SECOND,
+                (SELECT MIN(timestamp) FROM pageviews p2 WHERE p2.session_id = Pageview.session_id),
+                (SELECT MAX(timestamp) FROM pageviews p3 WHERE p3.session_id = Pageview.session_id)
+              )
+            ) AS UNSIGNED
+          )
+        `), 'avgSessionDuration']
+      ],
+      where: {
+        api_key: req.apiKeyData.key,
+        timestamp: { [Op.gte]: thirtyDaysAgo }
+      }
+    });
 
     // Get previous period metrics
-    const [previousMetrics] = await pool.query(
-      `WITH session_durations AS (
-        SELECT 
-          session_id,
-          TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) as duration
-        FROM pageviews
-        WHERE api_key = ? AND timestamp >= ? AND timestamp < ?
-        GROUP BY session_id
-       ),
-       bounce_metrics AS (
-        SELECT
-          COUNT(DISTINCT session_id) as total_sessions,
-          SUM(CASE WHEN pageviews = 1 THEN 1 ELSE 0 END) as bounce_sessions
-        FROM (
-          SELECT session_id, COUNT(*) as pageviews
-          FROM pageviews
-          WHERE api_key = ? AND timestamp >= ? AND timestamp < ?
-          GROUP BY session_id
-        ) session_counts
-       )
-       SELECT 
-        COUNT(DISTINCT p.visitorId) as uniqueVisitors,
-        COUNT(*) as totalPageViews,
-        AVG(sd.duration) as avgSessionDuration,
-        (bm.bounce_sessions * 100.0 / NULLIF(bm.total_sessions, 0)) as bounceRate
-       FROM pageviews p
-       LEFT JOIN session_durations sd ON TRUE
-       CROSS JOIN bounce_metrics bm
-       WHERE p.api_key = ? AND p.timestamp >= ? AND p.timestamp < ?
-       GROUP BY bm.bounce_sessions, bm.total_sessions`,
-      [apiKey, previousThirtyDays, thirtyDaysAgo, apiKey, previousThirtyDays, thirtyDaysAgo, apiKey, previousThirtyDays, thirtyDaysAgo]
-    );
+    const previousMetrics = await Pageview.findOne({
+      attributes: [
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('visitorId'))), 'uniqueVisitors'],
+        [sequelize.fn('COUNT', sequelize.col('*')), 'totalPageViews']
+      ],
+      where: {
+        api_key: req.apiKeyData.key,
+        timestamp: {
+          [Op.gte]: previousThirtyDays,
+          [Op.lt]: thirtyDaysAgo
+        }
+      }
+    });
 
     // Calculate percentage changes
     const calculateChange = (current, previous) => {
-      if (!previous) return current > 0 ? '+100%' : '0%';
-      const change = ((current - previous) / previous) * 100;
-      return `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
+      if (!previous) return 0;
+      return ((current - previous) / previous) * 100;
     };
 
-    // Format session duration
-    const formatDuration = (seconds) => {
-      if (!seconds) return '0s';
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = Math.floor(seconds % 60);
-      return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
-    };
-
-    // Get top pages
-    const [topPages] = await pool.query(
-      `SELECT 
-        page_url as page,
-        COUNT(*) as views,
-        AVG(
-          CASE 
-            WHEN TIMESTAMPDIFF(SECOND, timestamp, 
-              (SELECT MIN(p2.timestamp)
-               FROM pageviews p2
-               WHERE p2.session_id = pageviews.session_id
-               AND p2.timestamp > pageviews.timestamp)
-            ) > 0
-            THEN TIMESTAMPDIFF(SECOND, timestamp,
-              (SELECT MIN(p2.timestamp)
-               FROM pageviews p2
-               WHERE p2.session_id = pageviews.session_id
-               AND p2.timestamp > pageviews.timestamp)
-            )
-            ELSE 30 -- Default value for last page in session
-          END
-        ) as avgTime
-      FROM pageviews
-      WHERE api_key = ? AND timestamp >= ?
-      GROUP BY page_url
-      ORDER BY views DESC
-      LIMIT 10`,
-      [apiKey, thirtyDaysAgo]
-    );
-
-    // Get device statistics using device_info table
-    const [deviceStats] = await pool.query(
-      `SELECT 
-        device_type as name,
-        COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() as percentage
-      FROM device_info di
-      JOIN user_sessions us ON di.session_id = us.id
-      JOIN api_keys ak ON us.api_key_id = ak.id
-      WHERE ak.key = ? AND us.start_time >= ?
-      GROUP BY device_type
-      ORDER BY percentage DESC`,
-      [apiKey, thirtyDaysAgo]
-    );
-
-    // Get browser statistics using device_info table
-    const [browserStats] = await pool.query(
-      `SELECT 
-        browser as name,
-        COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() as percentage
-      FROM device_info di
-      JOIN user_sessions us ON di.session_id = us.id
-      JOIN api_keys ak ON us.api_key_id = ak.id
-      WHERE ak.key = ? AND us.start_time >= ?
-      GROUP BY browser
-      ORDER BY percentage DESC`,
-      [apiKey, thirtyDaysAgo]
-    );
-
-    // Get OS statistics using device_info table
-    const [osStats] = await pool.query(
-      `SELECT 
-        os as name,
-        COUNT(*) * 100.0 / SUM(COUNT(*)) OVER() as percentage
-      FROM device_info di
-      JOIN user_sessions us ON di.session_id = us.id
-      JOIN api_keys ak ON us.api_key_id = ak.id
-      WHERE ak.key = ? AND us.start_time >= ?
-      GROUP BY os
-      ORDER BY percentage DESC`,
-      [apiKey, thirtyDaysAgo]
-    );
-
-    // Get recent user activity combining pageviews and analytics events with enhanced details
-    const [userActivity] = await pool.query(
-      `WITH combined_activity AS (
-        SELECT 
-          timestamp,
-          'Page View' as action,
-          page_url as page,
-          title,
-          visitorId,
-          user_agent,
-          'pageview' as source
-        FROM pageviews
-        WHERE api_key = ? AND timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-        UNION ALL
-        SELECT 
-          ae.timestamp,
-          ae.event_type as action,
-          ae.page_url as page,
-          NULL as title,
-          ae.visitor_id as visitorId,
-          ae.user_agent,
-          'event' as source
-        FROM analytics_events ae
-        JOIN api_keys ak ON ae.api_key_id = ak.id
-        WHERE ak.key = ? AND ae.timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-      )
-      SELECT
-        DATE_FORMAT(timestamp, '%b %d, %Y %h:%i %p') as formatted_time,
-        action,
-        page,
-        COALESCE(NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(page, '/', 3), '/', -1), ''), 'Unknown') as location,
-        source
-      FROM combined_activity
-      ORDER BY timestamp DESC
-      LIMIT 30`,
-      [apiKey, apiKey]
-    );
-
-    // Handle empty metrics data with fallback values
-    const current = currentMetrics[0] || {
-      uniqueVisitors: 0,
-      totalPageViews: 0,
-      avgSessionDuration: 0,
-      bounceRate: 0
-    };
-    const previous = previousMetrics[0] || {
-      uniqueVisitors: 0,
-      totalPageViews: 0,
-      avgSessionDuration: 0,
-      bounceRate: 0
-    };
-
-    res.json({
-      uniqueVisitors: current.uniqueVisitors || 0,
-      visitorChange: calculateChange(current.uniqueVisitors, previous.uniqueVisitors),
-      averageSessionDuration: formatDuration(current.avgSessionDuration),
-      sessionDurationChange: calculateChange(current.avgSessionDuration, previous.avgSessionDuration),
-      bounceRate: Number(current.bounceRate || 0),
-      bounceRateChange: calculateChange(current.bounceRate, previous.bounceRate),
-      totalPageViews: current.totalPageViews || 0,
-      pageViewsChange: calculateChange(current.totalPageViews, previous.totalPageViews),
-      topPages: topPages.map(page => ({
-        ...page,
-        avgTime: formatDuration(page.avgTime),
-        change: '+0%' // You might want to calculate this based on previous period
-      })),
-      deviceStats: deviceStats.map(stat => ({
-        ...stat,
-        percentage: Math.round(stat.percentage)
-      })),
-      browserStats: browserStats.map(stat => ({
-        ...stat,
-        percentage: Math.round(stat.percentage)
-      })),
-      osStats: osStats.map(stat => ({
-        ...stat,
-        percentage: Math.round(stat.percentage)
-      })),
-      userActivity: userActivity.map(activity => ({
-        ...activity,
-        location: 'Unknown' // You might want to add location tracking
-      }))
+    // Get top pages metrics
+    const topPages = await Pageview.findAll({
+      attributes: [
+        'page_url',
+        [sequelize.fn('COUNT', sequelize.col('*')), 'views'],
+        [sequelize.fn('AVG', 
+          sequelize.fn('TIMESTAMPDIFF', 
+            sequelize.literal('SECOND'), 
+            sequelize.col('timestamp'),
+            sequelize.literal('(SELECT timestamp FROM pageviews p2 WHERE p2.session_id = Pageview.session_id AND p2.timestamp > Pageview.timestamp ORDER BY timestamp ASC LIMIT 1)')
+          )
+        ), 'avgTimeOnPage']
+      ],
+      where: {
+        api_key: req.apiKeyData.key,
+        timestamp: { [Op.gte]: thirtyDaysAgo }
+      },
+      group: ['page_url'],
+      order: [[sequelize.fn('COUNT', sequelize.col('*')), 'DESC']],
+      limit: 10
     });
+
+    // Get recent user activity
+    const recentActivity = await Pageview.findAll({
+      attributes: [
+        'timestamp',
+        'page_url',
+        ['visitorId', 'visitorId'],
+        'title',
+        'referrer',
+        'screen_resolution',
+        'language',
+        'timezone',
+        'connection_type',
+        'page_load_time'
+      ],
+      where: {
+        api_key: req.apiKeyData.key,
+        timestamp: { [Op.gte]: thirtyDaysAgo }
+      },
+      order: [['timestamp', 'DESC']],
+      limit: 20
+    });
+
+    // Get device analytics
+    const deviceAnalytics = await sequelize.query(`
+      SELECT 
+        device_type,
+        browser,
+        os,
+        COUNT(*) as count
+      FROM device_info di
+      JOIN user_sessions us ON di.session_id = us.id
+      JOIN api_keys ak ON us.api_key_id = ak.id
+      JOIN pageviews pv ON pv.session_id = us.id
+      WHERE ak.key = :apiKey
+      AND pv.timestamp >= :thirtyDaysAgo
+      GROUP BY device_type, browser, os
+    `, {
+      replacements: { 
+        apiKey: req.apiKeyData.key,
+        thirtyDaysAgo: thirtyDaysAgo.toISOString()
+      },
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    // Process device analytics
+    const deviceDistribution = {};
+    const browserUsage = {};
+    const operatingSystems = {};
+
+    deviceAnalytics.forEach(record => {
+      if (record.device_type) {
+        deviceDistribution[record.device_type] = (deviceDistribution[record.device_type] || 0) + record.count;
+      }
+      if (record.browser) {
+        browserUsage[record.browser] = (browserUsage[record.browser] || 0) + record.count;
+      }
+      if (record.os) {
+        operatingSystems[record.os] = (operatingSystems[record.os] || 0) + record.count;
+      }
+    });
+
+    const metrics = {
+      currentPeriod: {
+        uniqueVisitors: parseInt(currentMetrics.get('uniqueVisitors') || 0),
+        totalPageViews: parseInt(currentMetrics.get('totalPageViews') || 0),
+        bounceRate: parseFloat(currentMetrics.get('bounceRate') || 0).toFixed(2),
+        avgSessionDuration: parseInt(currentMetrics.get('avgSessionDuration') || 0)
+      },
+      previousPeriod: {
+        uniqueVisitors: parseInt(previousMetrics.get('uniqueVisitors') || 0),
+        totalPageViews: parseInt(previousMetrics.get('totalPageViews') || 0),
+        bounceRate: 0, // Default to 0 for previous period if not available
+        avgSessionDuration: 0 // Default to 0 for previous period if not available
+      },
+      changes: {
+        uniqueVisitors: calculateChange(
+          parseInt(currentMetrics.get('uniqueVisitors') || 0),
+          parseInt(previousMetrics.get('uniqueVisitors') || 0)
+        ).toFixed(1),
+        totalPageViews: calculateChange(
+          parseInt(currentMetrics.get('totalPageViews') || 0),
+          parseInt(previousMetrics.get('totalPageViews') || 0)
+        ).toFixed(1),
+        bounceRate: calculateChange(
+          parseFloat(currentMetrics.get('bounceRate') || 0),
+          0
+        ).toFixed(1),
+        avgSessionDuration: calculateChange(
+          parseInt(currentMetrics.get('avgSessionDuration') || 0),
+          0
+        ).toFixed(1)
+      },
+      deviceAnalytics: {
+        deviceDistribution: Object.entries(deviceDistribution).map(([type, count]) => ({
+          type,
+          count,
+          percentage: ((count / Object.values(deviceDistribution).reduce((a, b) => a + b, 0)) * 100).toFixed(1)
+        })),
+        browserUsage: Object.entries(browserUsage).map(([browser, count]) => ({
+          browser,
+          count,
+          percentage: ((count / Object.values(browserUsage).reduce((a, b) => a + b, 0)) * 100).toFixed(1)
+        })),
+        operatingSystems: Object.entries(operatingSystems).map(([os, count]) => ({
+          os,
+          count,
+          percentage: ((count / Object.values(operatingSystems).reduce((a, b) => a + b, 0)) * 100).toFixed(1)
+        }))
+      },
+      topPages: topPages.map(page => ({
+        url: page.get('page_url'),
+        views: parseInt(page.get('views')),
+        avgTimeOnPage: Math.round(parseFloat(page.get('avgTimeOnPage') || 0))
+      })),
+      recentActivity: recentActivity.map(activity => ({
+        timestamp: activity.get('timestamp'),
+        page: activity.get('page_url'),
+        visitorId: activity.get('visitorId'),
+        title: activity.get('title'),
+        referrer: activity.get('referrer'),
+        screenResolution: activity.get('screen_resolution'),
+        language: activity.get('language'),
+        timezone: activity.get('timezone'),
+        connectionType: activity.get('connection_type'),
+        pageLoadTime: activity.get('page_load_time')
+      }))
+    };
+
+    res.json(metrics);
   } catch (error) {
     console.error('Error fetching dashboard metrics:', error);
     res.status(500).json({ error: 'Error fetching dashboard metrics' });

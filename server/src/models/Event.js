@@ -1,42 +1,77 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const sequelize = require('../db/sequelize');
 
-const eventSchema = new mongoose.Schema({
-  eventName: { type: String, required: true },
-  url: { type: String, required: true },
-  timestamp: { type: Date, required: true, default: Date.now },
-  sessionId: { type: String, required: true },
-  // Performance metrics fields
-  metricName: { type: String },
-  value: { type: mongoose.Schema.Types.Mixed }, // Allow both number and string values
-  // Resource timing fields
-  resourceType: { type: String },
-  resourceUrl: { type: String },
-  duration: { type: Number },
-  // Navigation timing fields
-  dnsTime: { type: Number },
-  tcpTime: { type: Number },
-  ttfb: { type: Number },
-  domLoadTime: { type: Number },
-  loadTime: { type: Number },
-  // Generic data field for additional properties
-  data: { type: mongoose.Schema.Types.Mixed },
-  apiKey: { type: String, required: true, index: true }
-});
-
-// Add indexes for common queries
-eventSchema.index({ timestamp: -1 });
-eventSchema.index({ apiKey: 1, timestamp: -1 });
-eventSchema.index({ eventName: 1, apiKey: 1 });
-
-// Pre-save middleware to ensure data consistency
-eventSchema.pre('save', function(next) {
-  // Convert undefined values to null
-  for (let path in this.schema.paths) {
-    if (this[path] === undefined) {
-      this[path] = null;
+const Event = sequelize.define('Event', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  eventType: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    field: 'event_type'
+  },
+  pageUrl: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    field: 'page_url'
+  },
+  timestamp: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: sequelize.literal('CURRENT_TIMESTAMP'),
+    field: 'timestamp'
+  },
+  sessionId: {
+    type: DataTypes.STRING(36),
+    allowNull: false,
+    field: 'session_id'
+  },
+  userAgent: {
+    type: DataTypes.STRING,
+    field: 'user_agent'
+  },
+  ipAddress: {
+    type: DataTypes.STRING,
+    field: 'ip_address'
+  },
+  referrer: {
+    type: DataTypes.STRING,
+    field: 'referrer'
+  },
+  resourceType: {
+    type: DataTypes.STRING,
+    field: 'resource_type'
+  },
+  resourceUrl: {
+    type: DataTypes.STRING,
+    field: 'resource_url'
+  },
+  resourceSize: {
+    type: DataTypes.INTEGER,
+    field: 'resource_size'
+  },
+  resourceTiming: {
+    type: DataTypes.JSON,
+    field: 'resource_timing'
+  },
+  visitorId: {
+    type: DataTypes.STRING,
+    field: 'visitor_id'
+  },
+  apiKeyId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    field: 'api_key_id',
+    references: {
+      model: 'api_keys',
+      key: 'id'
     }
   }
-  next();
+}, {
+  tableName: 'analytics_events',
+  timestamps: false
 });
 
-module.exports = mongoose.model('Event', eventSchema);
+module.exports = Event;

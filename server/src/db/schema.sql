@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 CREATE TABLE IF NOT EXISTS user_sessions (
     id INT PRIMARY KEY AUTO_INCREMENT,
     api_key_id INT NOT NULL,
-    session_id VARCHAR(255) NOT NULL,
+    session_id VARCHAR(36) NOT NULL,
     start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     end_time TIMESTAMP NULL,
     duration INT,
@@ -80,13 +80,14 @@ CREATE TABLE IF NOT EXISTS pageviews (
     title VARCHAR(255),
     referrer VARCHAR(255),
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    session_id INT NOT NULL,
+    session_id VARCHAR(36) NOT NULL,
     user_agent VARCHAR(255),
     screen_resolution VARCHAR(50),
     language VARCHAR(50),
     timezone VARCHAR(100),
     connection_type VARCHAR(50),
     page_load_time BIGINT,
+    ip_address VARCHAR(45),
     INDEX idx_api_key_timestamp (api_key, timestamp),
     INDEX idx_visitor_id (visitorId),
     INDEX idx_session_id (session_id),
@@ -96,7 +97,7 @@ CREATE TABLE IF NOT EXISTS pageviews (
 -- Device Info table
 CREATE TABLE IF NOT EXISTS device_info (
     id INT PRIMARY KEY AUTO_INCREMENT,
-    session_id INT NOT NULL,
+    session_id VARCHAR(36) NOT NULL,
     device_type VARCHAR(50),
     browser VARCHAR(50),
     os VARCHAR(50),

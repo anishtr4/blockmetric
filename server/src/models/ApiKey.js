@@ -1,15 +1,99 @@
-const mongoose = require('mongoose');
+const { DataTypes } = require('sequelize');
+const sequelize = require('../db/sequelize');
+const { v4: uuidv4 } = require('uuid');
 
-const apiKeySchema = new mongoose.Schema({
-  key: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  allowedOrigins: [{ type: String }],
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  createdAt: { type: Date, default: Date.now }
+const ApiKey = sequelize.define('ApiKey', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  key: {
+    type: DataTypes.STRING(36),
+    unique: true,
+    allowNull: false,
+    defaultValue: () => uuidv4()
+  },
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    field: 'user_id'
+  }
+}, {
+  tableName: 'api_keys',
+  timestamps: false
 });
 
-// Create indexes for frequently queried fields
-apiKeySchema.index({ key: 1 });
-apiKeySchema.index({ userId: 1 });
+// Static methods
+ApiKey.create = async function({ name, userId }) {
+  const apiKey = await this.create({
+    name,
+    userId,
+    key: uuidv4()
+  });
+  return apiKey.toJSON();
+};
 
-module.exports = mongoose.model('ApiKey', apiKeySchema);
+ApiKey.findByKey = async function(key) {
+  const apiKey = await this.findOne({
+    where: { key },
+    include: [{
+      association: 'allowedOrigins',
+      attributes: ['origin']
+    }]
+  });
+  if (apiKey) {
+    const data = apiKey.toJSON();
+    data.allowedOrigins = data.allowedOrigins.map(ao => ao.origin);
+    return data;
+  }
+  return null;
+};
+
+ApiKey.findByUserId = async function(userId) {
+  const apiKeys = await this.findAll({
+    where: { userId },
+    include: [{
+      association: 'allowedOrigins',
+      attributes: ['origin']
+    }]
+  });
+  return apiKeys.map(apiKey => {
+    const data = apiKey.toJSON();
+    data.allowedOrigins = data.allowedOrigins.map(ao => ao.origin);
+    return data;
+  });
+};
+
+ApiKey.updateAllowedOrigins = async function(apiKeyId, origins) {
+  const transaction = await sequelize.transaction();
+  try {
+    const apiKey = await this.findByPk(apiKeyId, { transaction });
+    if (!apiKey) throw new Error('API key not found');
+
+    await apiKey.setAllowedOrigins([], { transaction });
+    
+    if (origins && origins.length > 0) {
+      await Promise.all(origins.map(origin =>
+        apiKey.createAllowedOrigin({ origin }, { transaction })
+      ));
+    }
+
+    await transaction.commit();
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+};
+
+ApiKey.delete = async function(id) {
+  return this.destroy({
+    where: { id }
+  });
+};
+
+module.exports = ApiKey;

@@ -7,8 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const bodyParser = require('body-parser');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const websitesRoutes = require('./routes/websites');
-const ApiKey = require('./models/ApiKeyMySQL');
-const pool = require('./db/config');
+const sequelize = require('./db/sequelize');
 const dashboardMetricsRouter = require('./routes/dashboardMetrics');
 
 const app = express();
@@ -22,13 +21,12 @@ app.use(cors({
 app.use(express.json());
 app.use(bodyParser.json());
 
-// Test MySQL connection
-pool.getConnection()
-  .then(connection => {
-    console.log('Connected to MySQL database');
-    connection.release();
+// Test Sequelize connection
+sequelize.authenticate()
+  .then(() => {
+    console.log('Connected to MySQL database via Sequelize');
   })
-  .catch(err => console.error('MySQL connection error:', err));
+  .catch(err => console.error('Sequelize connection error:', err));
 
 // Routes
 app.use('/api/analytics', analyticsRoutes);
@@ -37,6 +35,7 @@ app.use('/api/analytics', dashboardMetricsRouter);
 
 // Import User model
 const User = require('./models/UserMySQL');
+const { ApiKey } = require('./models');
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {

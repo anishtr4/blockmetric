@@ -1,4 +1,4 @@
-const ApiKey = require('../models/ApiKeyMySQL');
+const ApiKey = require('../models/ApiKey');
 const jwt = require('jsonwebtoken');
 
 const validateApiKey = async (req, res, next) => {
@@ -8,7 +8,13 @@ const validateApiKey = async (req, res, next) => {
   }
 
   try {
-    const keyData = await ApiKey.findByKey(apiKey);
+    const keyData = await ApiKey.findOne({
+      where: { key: apiKey },
+      include: [{
+        association: 'allowedOrigins',
+        attributes: ['origin']
+      }]
+    });
     if (!keyData) {
       return res.status(401).json({ error: 'Invalid API key' });
     }
@@ -38,6 +44,8 @@ const validateApiKey = async (req, res, next) => {
     }
 
     req.apiKeyData = keyData;
+    req.apiKeyId = keyData.id;
+    req.apiKey = apiKey; // Add the API key to the request object
     next();
   } catch (error) {
     console.error('Error validating API key:', error);

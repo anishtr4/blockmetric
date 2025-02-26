@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const { Op } = require('sequelize');
+const sequelize = require('../db/sequelize');
+const Event = require('../models/Event');
+const Pageview = require('../models/Pageview');
 const { validateApiKey } = require('../middleware/auth');
-const Event = require('../models/EventMySQL');
-const Pageview = require('../models/PageviewMySQL');
-const pool = require('../db/config');
 
 // Helper function to anonymize IP address
 const anonymizeIp = (ip) => {
@@ -21,28 +22,42 @@ router.post('/events', validateApiKey, async (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     const origin = req.headers.origin || req.headers.referer || 'unknown';
     const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    const eventData = { 
-      ...req.body, 
-      apiKey, 
-      url: origin,
-      ipAddress: anonymizeIp(clientIp)
-    };
-
+    
     // Validate event type and required fields
-    if (!eventData.eventName) {
+    if (!req.body.eventName) {
       const error = new Error('Event name is required');
       error.code = 'EVENT_TRACKING_ERROR';
       throw error;
     }
 
+    if (!req.body.sessionId) {
+      const error = new Error('Session ID is required');
+      error.code = 'EVENT_TRACKING_ERROR';
+      throw error;
+    }
+
     // Validate specific event types
-    if (eventData.eventName === 'performance_metric' && !eventData.metricName) {
+    if (req.body.eventName === 'performance_metric' && !req.body.metricName) {
       const error = new Error('Metric name is required for performance metrics');
       error.code = 'EVENT_TRACKING_ERROR';
       throw error;
     }
 
-    await Event.create(eventData);
+    // Create event using Sequelize model
+    await Event.create({
+      eventType: req.body.eventName,
+      pageUrl: origin,
+      sessionId: req.body.sessionId,
+      userAgent: req.headers['user-agent'],
+      ipAddress: anonymizeIp(clientIp),
+      referrer: req.headers.referer,
+      resourceType: req.body.resourceType,
+      resourceUrl: req.body.resourceUrl,
+      resourceSize: req.body.resourceSize,
+      resourceTiming: req.body.resourceTiming,
+      visitorId: req.body.visitorId,
+      apiKeyId: req.apiKeyData.id // Fix: Use apiKeyData.id instead of apiKeyId
+    });
     
     res.status(201).json({ message: 'Event tracked successfully' });
   } catch (error) {
@@ -53,25 +68,31 @@ router.post('/events', validateApiKey, async (req, res, next) => {
 // POST /api/pageviews - Track page views
 router.post('/pageviews', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const origin = req.headers.origin || req.headers.referer || 'unknown';
     const clientIp = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     
-    const pageviewData = { 
-      ...req.body, 
-      apiKey, 
-      url: origin,
-      ipAddress: anonymizeIp(clientIp),
-      timestamp: new Date() // Ensure timestamp is set
-    };
-
-    console.log('pageviewData',pageviewData)
     // Validate required fields
-    if (!pageviewData.visitorId || !pageviewData.pageViewId) {
-      throw new Error('Visitor ID and Page View ID are required');
+    if (!req.body.visitorId || !req.body.sessionId) {
+      throw new Error('Visitor ID and Session ID are required');
     }
 
-    await Pageview.create(pageviewData);
+    // Create pageview using Sequelize model
+    await Pageview.create({
+      page_url: req.body.pageUrl || origin,
+      title: req.body.title,
+      referrer: req.headers.referer,
+      sessionId: req.body.sessionId,
+      apiKeyId: req.apiKeyId,
+      visitorId: req.body.visitorId,
+      userAgent: req.headers['user-agent'],
+      screenResolution: req.body.screenResolution,
+      language: req.body.language,
+      timezone: req.body.timezone,
+      connectionType: req.body.connectionType,
+      pageLoadTime: req.body.pageLoadTime,
+      ipAddress: anonymizeIp(clientIp),
+      lastVisit: new Date()
+    });
     
     res.status(201).json({ message: 'Pageview tracked successfully' });
   } catch (error) {
@@ -81,10 +102,8 @@ router.post('/pageviews', validateApiKey, async (req, res) => {
 });
 
 // GET /api/analytics/user-metrics - Get user metrics (MAU, DAU, HAU)
-router.get('/user-metrics', async (req, res) => {
-  // Origin validation is handled by validateApiKey middleware
+router.get('/user-metrics', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const now = new Date();
 
     // Calculate date ranges
@@ -100,61 +119,77 @@ router.get('/user-metrics', async (req, res) => {
     const prevHourStart = new Date(hourStart);
     prevHourStart.setHours(prevHourStart.getHours() - 1);
 
-    // Query for current period metrics
-    const [mauResult, dauResult, hauResult] = await Promise.all([
+    // Query for current period metrics using Sequelize
+    const [mau, dau, hau] = await Promise.all([
       // Monthly Active Users
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ?',
-        [apiKey, monthStart]
-      ),
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: monthStart }
+        }
+      }),
       // Daily Active Users
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ?',
-        [apiKey, dayStart]
-      ),
-      // Hourly Active Users - Count unique visitors in the last hour
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp <= NOW()',
-        [apiKey, hourStart]
-      )
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: dayStart }
+        }
+      }),
+      // Hourly Active Users
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: hourStart }
+        }
+      })
     ]);
-
-    const mau = mauResult[0][0];
-    const dau = dauResult[0][0];
-    const hau = hauResult[0][0];
 
     // Query for previous period metrics
-    const [prevMauResult, prevDauResult, prevHauResult] = await Promise.all([
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ?',
-        [apiKey, prevMonthStart, monthStart]
-      ),
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ?',
-        [apiKey, prevDayStart, dayStart]
-      ),
-      pool.query(
-        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ? AND timestamp <= ?',
-        [apiKey, prevHourStart, hourStart, new Date(hourStart)]
-      )
+    const [prevMau, prevDau, prevHau] = await Promise.all([
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: prevMonthStart, [Op.lt]: monthStart }
+        }
+      }),
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: prevDayStart, [Op.lt]: dayStart }
+        }
+      }),
+      Pageview.count({
+        distinct: true,
+        col: 'visitorId',
+        where: {
+          apiKeyId: req.apiKeyId,
+          timestamp: { [Op.gte]: prevHourStart, [Op.lt]: hourStart }
+        }
+      })
     ]);
-
-    const prevMau = prevMauResult[0][0];
-    const prevDau = prevDauResult[0][0];
-    const prevHau = prevHauResult[0][0];
 
     // Calculate percentage changes
     const calculateChange = (current, previous) => {
       if (!current || !previous) return '0%';
-      if (previous.total === 0) return current.total > 0 ? '+100%' : '0%';
-      const change = ((current.total - previous.total) / previous.total) * 100;
+      if (previous === 0) return current > 0 ? '+100%' : '0%';
+      const change = ((current - previous) / previous) * 100;
       return `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
     };
 
     res.json({
-      mau: mau?.total || 0,
-      dau: dau?.total || 0,
-      hau: hau?.total || 0,
+      mau,
+      dau,
+      hau,
       mauChange: calculateChange(mau, prevMau),
       dauChange: calculateChange(dau, prevDau),
       hauChange: calculateChange(hau, prevHau)
@@ -166,71 +201,62 @@ router.get('/user-metrics', async (req, res) => {
 });
 
 // GET /api/analytics/visitor-trends - Get visitor trends by time range
-router.get('/visitor-trends', async (req, res) => {
+router.get('/visitor-trends', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const timeRange = req.query.timeRange || 'daily';
     const now = new Date();
     let startDate;
-    let groupingFormat;
 
-    // Set time range and data grouping format
+    // Set time range
     switch (timeRange) {
       case 'yearly':
-        startDate = new Date(2020, 0, 1); // Start from 2020 or your preferred start year
-        groupingFormat = '%Y';
+        startDate = new Date(2020, 0, 1); // Start from 2020
         break;
       case 'monthly':
         startDate = new Date(now.getFullYear(), 0, 1); // Start of current year
-        groupingFormat = '%Y-%m';
         break;
       case 'weekly':
         startDate = new Date(now.getFullYear(), 0, 1); // Start of current year
-        groupingFormat = '%Y-%U'; // Week number format
         break;
       default: // daily
         startDate = new Date(now.getFullYear(), 0, 1); // Start of current year
-        groupingFormat = '%Y-%m-%d';
     }
 
-    // Query pageviews using MySQL
-    const [pageviews] = await pool.query(
-      `SELECT 
-        DATE_FORMAT(timestamp, ?) as time,
-        COUNT(*) as visitors,
-        COUNT(DISTINCT visitorId) as uniqueVisitors
-      FROM pageviews
-      WHERE api_key = ? AND timestamp >= ?
-      GROUP BY time
-      ORDER BY time ASC`,
-      [groupingFormat, apiKey, startDate]
-    );
+    // Query pageviews using Sequelize
+    const pageviews = await Pageview.findAll({
+      attributes: [
+        [sequelize.fn('DATE', sequelize.col('timestamp')), 'date'],
+        [sequelize.fn('COUNT', sequelize.col('*')), 'visitors'],
+        [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('visitorId'))), 'uniqueVisitors']
+      ],
+      where: {
+        apiKeyId: req.apiKeyId,
+        timestamp: { [Op.gte]: startDate }
+      },
+      group: [sequelize.fn('DATE', sequelize.col('timestamp'))],
+      order: [[sequelize.fn('DATE', sequelize.col('timestamp')), 'ASC']]
+    });
 
     // Process the data based on time range
-    let processedData = pageviews;
+    let processedData = pageviews.map(pv => ({
+      time: pv.get('date'),
+      visitors: parseInt(pv.get('visitors')),
+      uniqueVisitors: parseInt(pv.get('uniqueVisitors'))
+    }));
 
     if (timeRange === 'weekly') {
-      // Convert week numbers to date ranges
-      processedData = pageviews.map(item => {
-        const [year, week] = item.time.split('-');
-        const weekStart = new Date(year, 0, 1 + (week * 7));
-        return {
-          ...item,
-          time: weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        };
-      });
+      processedData = processedData.map(item => ({
+        ...item,
+        time: new Date(item.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      }));
     } else if (timeRange === 'monthly') {
-      // Convert month numbers to month names
-      processedData = pageviews.map(item => {
-        const [year, month] = item.time.split('-');
-        return {
-          ...item,
-          time: new Date(year, month - 1).toLocaleDateString('en-US', { month: 'short' })
-        };
-      });
+      processedData = processedData.map(item => ({
+        ...item,
+        time: new Date(item.time).toLocaleDateString('en-US', { month: 'short' })
+      }));
     }
 
-    // Fill in missing data points with zeros
+    // Fill in missing data points
     const filledData = fillMissingDataPoints(processedData, timeRange, startDate, now);
 
     res.json(filledData);
@@ -288,9 +314,8 @@ const fillMissingDataPoints = (data, timeRange, startDate, endDate) => {
 };
 
 // GET /api/analytics/data
-router.get('/data', async (req, res) => {
+router.get('/data', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const interval = req.query.interval || '30min';
     const limit = parseInt(req.query.limit) || 336;
     const includeRealtime = req.query.includeRealtime === 'true';
@@ -307,11 +332,15 @@ router.get('/data', async (req, res) => {
     const now = new Date();
     const startTime = new Date(now.getTime() - (intervalMs * limit));
 
-    // Get pageviews within the time range
-    const [pageviews] = await pool.query(
-      'SELECT timestamp, visitorId FROM pageviews WHERE api_key = ? AND timestamp >= ? ORDER BY timestamp ASC',
-      [apiKey, startTime]
-    );
+    // Get pageviews within the time range using Sequelize
+    const pageviews = await Pageview.findAll({
+      attributes: ['timestamp', 'visitorId'],
+      where: {
+        apiKey: req.apiKey,
+        timestamp: { [Op.gte]: startTime }
+      },
+      order: [['createdAt', 'ASC']]
+    });
 
     // Group pageviews by interval
     const timeSlots = [];
@@ -320,7 +349,7 @@ router.get('/data', async (req, res) => {
       const slotEnd = new Date(slotStart.getTime() + intervalMs);
       
       const slotPageviews = pageviews.filter(pv => {
-        const pvTime = new Date(pv.timestamp);
+        const pvTime = pv.createdAt;
         return pvTime >= slotStart && pvTime < slotEnd;
       });
 
@@ -334,15 +363,18 @@ router.get('/data', async (req, res) => {
     // Add realtime data if requested
     if (includeRealtime) {
       const realtimeWindow = new Date(now.getTime() - (5 * 60 * 1000)); // Last 5 minutes
-      const [realtimePageviews] = await pool.query(
-        'SELECT visitorId, timestamp FROM pageviews WHERE api_key = ? AND timestamp >= ?',
-        [apiKey, realtimeWindow]
-      );
+      const realtimePageviews = await Pageview.findAll({
+        attributes: ['visitorId', 'timestamp'],
+        where: {
+          apiKey: req.apiKey,
+          timestamp: { [Op.gte]: realtimeWindow }
+        }
+      });
 
       const realtimeData = {
         currentVisitors: new Set(realtimePageviews.map(pv => pv.visitorId)).size,
         pageviewsLastMinute: realtimePageviews.filter(pv => 
-          new Date(pv.timestamp) >= new Date(now.getTime() - 60000)
+          pv.timestamp >= new Date(now.getTime() - 60000)
         ).length
       };
 
@@ -385,15 +417,17 @@ const timezoneCountryMap = {
 };
 
 // GET /api/analytics/demographics - Get visitor demographics
-router.get('/demographics', async (req, res) => {
+router.get('/demographics', validateApiKey, async (req, res) => {
   try {
-    const apiKey = req.headers['x-api-key'];
     const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
 
-    const [pageviews] = await pool.query(
-      'SELECT timezone FROM pageviews WHERE api_key = ? AND timestamp >= ?',
-      [apiKey, thirtyDaysAgo]
-    );
+    const pageviews = await Pageview.findAll({
+      attributes: ['timezone'],
+      where: {
+        api_key: req.apiKey,
+        timestamp: { [Op.gte]: thirtyDaysAgo }
+      }
+    });
 
     // Process geographic distribution based on timezones
     const countryStats = pageviews.reduce((acc, pv) => {
