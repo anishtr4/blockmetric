@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { validateApiKey } = require('../middleware/auth');
-const Event = require('../models/Event');
-const Pageview = require('../models/Pageview');
+const Event = require('../models/EventMySQL');
+const Pageview = require('../models/PageviewMySQL');
+const pool = require('../db/config');
 
 // Helper function to anonymize IP address
 const anonymizeIp = (ip) => {
@@ -41,8 +42,7 @@ router.post('/events', validateApiKey, async (req, res, next) => {
       throw error;
     }
 
-    const event = new Event(eventData);
-    await event.save();
+    await Event.create(eventData);
     
     res.status(201).json({ message: 'Event tracked successfully' });
   } catch (error) {
@@ -71,13 +71,97 @@ router.post('/pageviews', validateApiKey, async (req, res) => {
       throw new Error('Visitor ID and Page View ID are required');
     }
 
-    const pageview = new Pageview(pageviewData);
-    await pageview.save();
+    await Pageview.create(pageviewData);
     
     res.status(201).json({ message: 'Pageview tracked successfully' });
   } catch (error) {
     console.error('Error tracking pageview:', error);
     res.status(500).json({ error: 'Error tracking pageview' });
+  }
+});
+
+// GET /api/analytics/user-metrics - Get user metrics (MAU, DAU, HAU)
+router.get('/user-metrics', async (req, res) => {
+  // Origin validation is handled by validateApiKey middleware
+  try {
+    const apiKey = req.headers['x-api-key'];
+    const now = new Date();
+
+    // Calculate date ranges
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const hourStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours());
+
+    // Previous period date ranges for comparison
+    const prevMonthStart = new Date(monthStart);
+    prevMonthStart.setMonth(prevMonthStart.getMonth() - 1);
+    const prevDayStart = new Date(dayStart);
+    prevDayStart.setDate(prevDayStart.getDate() - 1);
+    const prevHourStart = new Date(hourStart);
+    prevHourStart.setHours(prevHourStart.getHours() - 1);
+
+    // Query for current period metrics
+    const [mauResult, dauResult, hauResult] = await Promise.all([
+      // Monthly Active Users
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ?',
+        [apiKey, monthStart]
+      ),
+      // Daily Active Users
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ?',
+        [apiKey, dayStart]
+      ),
+      // Hourly Active Users - Count unique visitors in the last hour
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp <= NOW()',
+        [apiKey, hourStart]
+      )
+    ]);
+
+    const mau = mauResult[0][0];
+    const dau = dauResult[0][0];
+    const hau = hauResult[0][0];
+
+    // Query for previous period metrics
+    const [prevMauResult, prevDauResult, prevHauResult] = await Promise.all([
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ?',
+        [apiKey, prevMonthStart, monthStart]
+      ),
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ?',
+        [apiKey, prevDayStart, dayStart]
+      ),
+      pool.query(
+        'SELECT COUNT(DISTINCT visitorId) as total FROM pageviews WHERE api_key = ? AND timestamp >= ? AND timestamp < ? AND timestamp <= ?',
+        [apiKey, prevHourStart, hourStart, new Date(hourStart)]
+      )
+    ]);
+
+    const prevMau = prevMauResult[0][0];
+    const prevDau = prevDauResult[0][0];
+    const prevHau = prevHauResult[0][0];
+
+    // Calculate percentage changes
+    const calculateChange = (current, previous) => {
+      if (!current || !previous) return '0%';
+      if (previous.total === 0) return current.total > 0 ? '+100%' : '0%';
+      const change = ((current.total - previous.total) / previous.total) * 100;
+      return `${change > 0 ? '+' : ''}${change.toFixed(1)}%`;
+    };
+
+    res.json({
+      mau: mau?.total || 0,
+      dau: dau?.total || 0,
+      hau: hau?.total || 0,
+      mauChange: calculateChange(mau, prevMau),
+      dauChange: calculateChange(dau, prevDau),
+      hauChange: calculateChange(hau, prevHau)
+    });
+  } catch (error) {
+    console.error('Error fetching user metrics:', error);
+    res.status(500).json({ error: 'Error fetching user metrics' });
   }
 });
 
@@ -109,36 +193,18 @@ router.get('/visitor-trends', async (req, res) => {
         groupingFormat = '%Y-%m-%d';
     }
 
-    // Aggregate pageviews using MongoDB aggregation pipeline
-    const pageviews = await Pageview.aggregate([
-      {
-        $match: {
-          apiKey,
-          timestamp: { $gte: startDate }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: {
-              format: groupingFormat,
-              date: '$timestamp'
-            }
-          },
-          visitors: { $sum: 1 },
-          uniqueVisitors: { $addToSet: '$visitorId' }
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          time: '$_id',
-          visitors: 1,
-          uniqueVisitors: { $size: '$uniqueVisitors' }
-        }
-      },
-      { $sort: { time: 1 } }
-    ]);
+    // Query pageviews using MySQL
+    const [pageviews] = await pool.query(
+      `SELECT 
+        DATE_FORMAT(timestamp, ?) as time,
+        COUNT(*) as visitors,
+        COUNT(DISTINCT visitorId) as uniqueVisitors
+      FROM pageviews
+      WHERE api_key = ? AND timestamp >= ?
+      GROUP BY time
+      ORDER BY time ASC`,
+      [groupingFormat, apiKey, startDate]
+    );
 
     // Process the data based on time range
     let processedData = pageviews;
@@ -225,219 +291,136 @@ const fillMissingDataPoints = (data, timeRange, startDate, endDate) => {
 router.get('/data', async (req, res) => {
   try {
     const apiKey = req.headers['x-api-key'];
+    const interval = req.query.interval || '30min';
+    const limit = parseInt(req.query.limit) || 336;
+    const includeRealtime = req.query.includeRealtime === 'true';
+
+    // Parse interval into milliseconds
+    const intervalMs = {
+      '5min': 5 * 60 * 1000,
+      '15min': 15 * 60 * 1000,
+      '30min': 30 * 60 * 1000,
+      '1hour': 60 * 60 * 1000,
+      '1day': 24 * 60 * 60 * 1000
+    }[interval] || (30 * 60 * 1000); // Default to 30min
+
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+    const startTime = new Date(now.getTime() - (intervalMs * limit));
 
-    // Get pageviews with visitor information
-    const pageviews = await Pageview.find({
-      apiKey,
-      timestamp: { $gte: thirtyDaysAgo }
-    }).select('-ipAddress').sort({ timestamp: 1 }); // Sort by timestamp ascending
+    // Get pageviews within the time range
+    const [pageviews] = await pool.query(
+      'SELECT timestamp, visitorId FROM pageviews WHERE api_key = ? AND timestamp >= ? ORDER BY timestamp ASC',
+      [apiKey, startTime]
+    );
 
-    // Calculate metrics
-    const uniqueVisitors = new Set(pageviews.map(pv => pv.visitorId)).size;
-    const totalPageViews = pageviews.length;
-
-    // Group pageviews by session
-    const sessionMap = new Map();
-    pageviews.forEach(pv => {
-      if (!sessionMap.has(pv.sessionId)) {
-        sessionMap.set(pv.sessionId, []);
-      }
-      sessionMap.get(pv.sessionId).push(pv);
-    });
-
-    // Calculate session metrics
-    let totalSessionDuration = 0;
-    let bouncedSessions = 0;
-    let nonBouncedSessions = 0;
-    sessionMap.forEach(sessionPageviews => {
-      // Calculate session duration
-      if (sessionPageviews.length > 1) {
-        const firstView = sessionPageviews[0];
-        const lastView = sessionPageviews[sessionPageviews.length - 1];
-        const duration = new Date(lastView.timestamp).getTime() - new Date(firstView.timestamp).getTime();
-        totalSessionDuration += duration;
-        nonBouncedSessions++;
-      }
-
-      // Count bounced sessions (single page view)
-      if (sessionPageviews.length === 1) {
-        bouncedSessions++;
-      }
-    });
-
-    const uniqueSessions = sessionMap.size;
-    const averageSessionDuration = nonBouncedSessions > 0 ? Math.round(totalSessionDuration / nonBouncedSessions / 1000) : 0; // in seconds
-    const bounceRate = uniqueSessions > 0 ? Math.round((bouncedSessions / uniqueSessions) * 100) : 0;
-
-    // Get operating system statistics
-    const osStats = pageviews.reduce((acc, pv) => {
-      const userAgent = pv.userAgent || '';
-      let os = 'Unknown';
-      if (userAgent.includes('Windows')) os = 'Windows';
-      else if (userAgent.includes('Mac')) os = 'macOS';
-      else if (userAgent.includes('iPhone') || userAgent.includes('iPad')) os = 'iOS';
-      else if (userAgent.includes('Android')) os = 'Android';
-      else if (userAgent.includes('Linux')) os = 'Linux';
-      acc[os] = (acc[os] || 0) + 1;
-      return acc;
-    }, {});
-
-    // Get recent user activity (combining pageviews and events)
-    const recentEvents = await Event.find({
-      apiKey,
-      timestamp: { $gte: thirtyDaysAgo }
-    }).select('eventName timestamp url data').sort({ timestamp: -1 }).limit(10);
-
-    const recentActivity = [...pageviews, ...recentEvents]
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, 10)
-      .map(item => {
-        if (item.eventName) {
-          // It's an event
-          return {
-            time: new Date(item.timestamp).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            }),
-            action: item.eventName,
-            page: item.url,
-            data: item.data
-          };
-        } else {
-          // It's a pageview
-          return {
-            time: new Date(item.timestamp).toLocaleString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            }),
-            action: 'Page View',
-            page: item.url,
-            visitorId: item.visitorId
-          };
-        }
+    // Group pageviews by interval
+    const timeSlots = [];
+    for (let i = 0; i < limit; i++) {
+      const slotStart = new Date(startTime.getTime() + (i * intervalMs));
+      const slotEnd = new Date(slotStart.getTime() + intervalMs);
+      
+      const slotPageviews = pageviews.filter(pv => {
+        const pvTime = new Date(pv.timestamp);
+        return pvTime >= slotStart && pvTime < slotEnd;
       });
 
-    // Calculate visitor time distribution
-    const last24Hours = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-    const recentPageviews = pageviews.filter(pv => new Date(pv.timestamp) >= last24Hours);
-    
-    const visitorsByTime = Array.from({ length: 12 }, (_, i) => {
-      const hour = i * 2;
-      const hourStr = hour.toString().padStart(2, '0') + ':00';
-      const visitors = recentPageviews.filter(pv => {
-        const pvHour = new Date(pv.timestamp).getHours();
-        return pvHour >= hour && pvHour < (hour + 2);
-      }).length;
-      return { time: hourStr, visitors };
-    });
+      timeSlots.push({
+        timestamp: slotStart.toISOString(),
+        pageviews: slotPageviews.length,
+        uniqueVisitors: new Set(slotPageviews.map(pv => pv.visitorId)).size
+      });
+    }
 
-    // Get browser and device statistics
-    const browserStats = pageviews.reduce((acc, pv) => {
-      const userAgent = pv.userAgent || '';
-      let browser = 'Unknown';
-      
-      // Improved browser detection
-      if (userAgent.includes('Chrome') || userAgent.includes('Chromium')) {
-        if (userAgent.includes('Brave')) {
-          browser = 'Brave';
-        } else if (userAgent.includes('Edge')) {
-          browser = 'Edge';
-        } else if (userAgent.includes('OPR') || userAgent.includes('Opera')) {
-          browser = 'Opera';
-        } else {
-          browser = 'Chrome';
-        }
-      } else if (userAgent.includes('Firefox')) {
-        browser = 'Firefox';
-      } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
-        browser = 'Safari';
-      }
-      
-      acc[browser] = (acc[browser] || 0) + 1;
-      return acc;
-    }, {});
+    // Add realtime data if requested
+    if (includeRealtime) {
+      const realtimeWindow = new Date(now.getTime() - (5 * 60 * 1000)); // Last 5 minutes
+      const [realtimePageviews] = await pool.query(
+        'SELECT visitorId, timestamp FROM pageviews WHERE api_key = ? AND timestamp >= ?',
+        [apiKey, realtimeWindow]
+      );
 
-    const deviceStats = pageviews.reduce((acc, pv) => {
-      const userAgent = pv.userAgent || '';
-      let device = 'Unknown';
-      if (userAgent.includes('Mobile') || userAgent.includes('Android') || userAgent.includes('iPhone') || userAgent.includes('iPad')) {
-        device = 'Mobile';
-      } else if (userAgent.includes('Tablet') || userAgent.includes('iPad')) {
-        device = 'Tablet';
-      } else {
-        device = 'Desktop';
-      }
-      acc[device] = (acc[device] || 0) + 1;
-      return acc;
-    }, {});
+      const realtimeData = {
+        currentVisitors: new Set(realtimePageviews.map(pv => pv.visitorId)).size,
+        pageviewsLastMinute: realtimePageviews.filter(pv => 
+          new Date(pv.timestamp) >= new Date(now.getTime() - 60000)
+        ).length
+      };
 
-    // Format browser and device stats as percentages
-    const formatStats = (stats) => {
-      const total = Object.values(stats).reduce((sum, count) => sum + count, 0);
-      return Object.entries(stats).map(([name, count]) => ({
-        name,
-        percentage: Math.round((count / total) * 100)
-      }));
-    };
+      res.json({
+        timeSlots,
+        realtime: realtimeData
+      });
+    } else {
+      res.json({ timeSlots });
+    }
 
-    // Get top pages
-    const pageStats = pageviews.reduce((acc, pv) => {
-      acc[pv.url] = (acc[pv.url] || 0) + 1;
-      return acc;
-    }, {});
-
-    const topPages = Object.entries(pageStats)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 4)
-      .map(([page, views]) => ({
-        page,
-        views,
-        change: '+0%' // You would need historical data to calculate real change
-      }));
-
-    // Calculate changes (mock data for now)
-    const visitorChange = '+0%';
-    const sessionDurationChange = '+0%';
-    const bounceRateChange = '+0%';
-    const pageViewsChange = '+0%';
-
-    // Format average session duration
-    const formatDuration = (seconds) => {
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      return `${minutes}m ${remainingSeconds}s`;
-    };
-
-    res.json({
-      uniqueVisitors,
-      visitorChange,
-      uniqueSessions,
-      totalPageViews,
-      pageViewsChange,
-      averageSessionDuration: formatDuration(averageSessionDuration),
-      sessionDurationChange,
-      bounceRate,
-      bounceRateChange,
-      visitorsByTime,
-      topPages,
-      deviceStats: formatStats(deviceStats),
-      browserStats: formatStats(browserStats),
-      osStats: formatStats(osStats),
-      userActivity: recentActivity
-    });
   } catch (error) {
     console.error('Error fetching analytics data:', error);
     res.status(500).json({ error: 'Error fetching analytics data' });
+  }
+});
+
+// Timezone to country mapping
+const timezoneCountryMap = {
+  'Asia/Calcutta': 'India',
+  'Asia/Kolkata': 'India',
+  'America/New_York': 'United States',
+  'America/Los_Angeles': 'United States',
+  'America/Chicago': 'United States',
+  'Europe/London': 'United Kingdom',
+  'Europe/Paris': 'France',
+  'Europe/Berlin': 'Germany',
+  'Asia/Tokyo': 'Japan',
+  'Asia/Shanghai': 'China',
+  'Australia/Sydney': 'Australia',
+  'America/Toronto': 'Canada',
+  'Asia/Singapore': 'Singapore',
+  'Asia/Dubai': 'United Arab Emirates',
+  'Europe/Amsterdam': 'Netherlands',
+  'Europe/Madrid': 'Spain',
+  'Europe/Rome': 'Italy',
+  'Asia/Seoul': 'South Korea',
+  'Asia/Hong_Kong': 'Hong Kong',
+  'Europe/Moscow': 'Russia'
+};
+
+// GET /api/analytics/demographics - Get visitor demographics
+router.get('/demographics', async (req, res) => {
+  try {
+    const apiKey = req.headers['x-api-key'];
+    const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
+
+    const [pageviews] = await pool.query(
+      'SELECT timezone FROM pageviews WHERE api_key = ? AND timestamp >= ?',
+      [apiKey, thirtyDaysAgo]
+    );
+
+    // Process geographic distribution based on timezones
+    const countryStats = pageviews.reduce((acc, pv) => {
+      const timezone = pv.timezone || 'Unknown';
+      const country = timezoneCountryMap[timezone] || 'Other';
+      acc[country] = (acc[country] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Format statistics as percentages and visitor counts
+    const formatStats = (stats) => {
+      const total = Object.values(stats).reduce((sum, count) => sum + count, 0);
+      return Object.entries(stats)
+        .map(([name, count]) => ({
+          name,
+          visitors: count,
+          percentage: Math.round((count / total) * 100)
+        }))
+        .sort((a, b) => b.visitors - a.visitors);
+    };
+
+    res.json({
+      geographicDistribution: formatStats(countryStats)
+    });
+  } catch (error) {
+    console.error('Error fetching demographics:', error);
+    res.status(500).json({ error: 'Error fetching demographics data' });
   }
 });
 

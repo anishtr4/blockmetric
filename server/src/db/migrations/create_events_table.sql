@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS events (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    event_name VARCHAR(255) NOT NULL,
+    metric_name VARCHAR(255),
+    value TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    api_key VARCHAR(255) NOT NULL,
+    url VARCHAR(2048),
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    session_id VARCHAR(255),
+    visitor_id VARCHAR(255),
+    resource_type VARCHAR(50),
+    resource_url VARCHAR(2048),
+    resource_size BIGINT,
+    resource_timing JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_api_key (api_key),
+    INDEX idx_event_name (event_name),
+    INDEX idx_timestamp (timestamp),
+    INDEX idx_resource_type (resource_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

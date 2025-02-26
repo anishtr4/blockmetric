@@ -1,15 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const ApiKey = require('../models/ApiKey');
+const ApiKey = require('../models/ApiKeyMySQL');
 const { v4: uuidv4 } = require('uuid');
 const { authenticateToken } = require('../middleware/auth');
 
 // Get all websites for the authenticated user
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const apiKeys = await ApiKey.find({ userId: req.user.id });
+    const apiKeys = await ApiKey.findByUserId(req.user.id);
     const mappedApiKeys = apiKeys.map(apiKey => ({
-      id: apiKey._id,
+      id: apiKey.id,
       value: apiKey.key,
       name: apiKey.name,
       allowedOrigins: apiKey.allowedOrigins || []
@@ -25,25 +25,24 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const { name, allowedOrigins } = req.body;
-    const key = uuidv4();
-    
-    const apiKey = new ApiKey({
-      key,
+    const apiKey = await ApiKey.create({
       name,
-      allowedOrigins: allowedOrigins || [],
       userId: req.user.id
     });
 
-    await apiKey.save();
+    if (allowedOrigins && allowedOrigins.length > 0) {
+      await ApiKey.updateAllowedOrigins(apiKey.id, allowedOrigins);
+    }
+
     res.status(201).json({
-      id: apiKey._id,
+      id: apiKey.id,
       value: apiKey.key,
       name: apiKey.name,
-      allowedOrigins: apiKey.allowedOrigins
+      allowedOrigins: allowedOrigins || []
     });
   } catch (error) {
     console.error('Error creating API key:', error);
-    if (error.code === 11000) {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ message: 'API key already exists' });
     }
     res.status(500).json({ message: 'Server error' });

@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
@@ -8,26 +7,36 @@ const { v4: uuidv4 } = require('uuid');
 const bodyParser = require('body-parser');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const websitesRoutes = require('./routes/websites');
-const ApiKey = require('./models/ApiKey');
+const ApiKey = require('./models/ApiKeyMySQL');
+const pool = require('./db/config');
+const dashboardMetricsRouter = require('./routes/dashboardMetrics');
 
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: '*'
+}));
 app.use(express.json());
 app.use(bodyParser.json());
 
-// MongoDB connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/blockmetric')
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+// Test MySQL connection
+pool.getConnection()
+  .then(connection => {
+    console.log('Connected to MySQL database');
+    connection.release();
+  })
+  .catch(err => console.error('MySQL connection error:', err));
 
 // Routes
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/websites', websitesRoutes);
+app.use('/api/analytics', dashboardMetricsRouter);
 
 // Import User model
-const User = require('./models/User');
+const User = require('./models/UserMySQL');
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
@@ -49,30 +58,28 @@ app.post('/api/auth/register', async (req, res) => {
     const { name, email, password } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findByEmail(email);
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Generate API key
-    const apiKey = uuidv4();
-
     // Create new user
-    const user = new User({
+    const user = await User.create({
       name,
       email,
-      password: hashedPassword,
-      apiKey
+      password
     });
 
-    await user.save();
+    // Generate and set API key
+    const apiKey = uuidv4();
+    await User.setApiKey(user.id, apiKey);
 
     res.status(201).json({ message: 'User registered successfully' });
   } catch (error) {
+    console.error('Registration error:', error);
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
     res.status(500).json({ error: 'Error registering user' });
   }
 });
@@ -82,8 +89,8 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user using MySQL User model
+    const user = await User.findByEmail(email);
     if (!user) {
       return res.status(400).json({ error: 'User not found' });
     }
@@ -96,7 +103,7 @@ app.post('/api/auth/login', async (req, res) => {
 
     // Create and assign token
     const token = jwt.sign(
-      { id: user._id, email: user.email, name: user.name },
+      { id: user.id, email: user.email, name: user.name },
       process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '24h' }
     );
@@ -104,10 +111,10 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({
       token,
       user: {
-        id: user._id,
+        id: user.id,
         name: user.name,
         email: user.email,
-        apiKey: user.apiKey
+        apiKey: user.api_key
       }
     });
   } catch (error) {
@@ -200,9 +207,17 @@ app.post('/api/auth/reset-password', async (req, res) => {
 // Verify token endpoint
 app.get('/api/auth/verify-token', authenticateToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
-    res.json({ user });
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Remove sensitive information
+    const { password, resetToken, resetTokenExpiry, ...userData } = user;
+    
+    res.json({ user: userData });
   } catch (error) {
+    console.error('Error verifying token:', error);
     res.status(500).json({ error: 'Error verifying token' });
   }
 });
@@ -246,31 +261,33 @@ const validateApiKey = async (req, res, next) => {
   }
 };
 
-// Update API Key Management endpoints
+// API Key Management endpoints
 app.post('/api/keys', authenticateToken, async (req, res) => {
   try {
     const { name, allowedOrigins } = req.body;
-    const key = uuidv4();
     
-    const apiKey = new ApiKey({
-      key,
+    const apiKey = await ApiKey.create({
       name,
-      allowedOrigins: allowedOrigins || [],
       userId: req.user.id
     });
 
-    await apiKey.save();
-    res.json({ apiKey: key });
+    if (allowedOrigins && allowedOrigins.length > 0) {
+      await ApiKey.updateAllowedOrigins(apiKey.id, allowedOrigins);
+    }
+
+    res.json({ apiKey: apiKey.key });
   } catch (error) {
+    console.error('Error creating API key:', error);
     res.status(500).json({ error: 'Error creating API key' });
   }
 });
 
 app.get('/api/keys', authenticateToken, async (req, res) => {
   try {
-    const keys = await ApiKey.find({ userId: req.user.id });
+    const keys = await ApiKey.findByUserId(req.user.id);
     res.json(keys);
   } catch (error) {
+    console.error('Error fetching API keys:', error);
     res.status(500).json({ error: 'Error fetching API keys' });
   }
 });
@@ -278,14 +295,16 @@ app.get('/api/keys', authenticateToken, async (req, res) => {
 app.delete('/api/keys/:key', authenticateToken, async (req, res) => {
   try {
     const { key } = req.params;
-    const result = await ApiKey.findOneAndDelete({ key, userId: req.user.id });
+    const apiKey = await ApiKey.findByKey(key);
     
-    if (!result) {
+    if (!apiKey || apiKey.user_id !== req.user.id) {
       return res.status(404).json({ error: 'API key not found' });
     }
     
+    await ApiKey.delete(apiKey.id);
     res.json({ message: 'API key deleted successfully' });
   } catch (error) {
+    console.error('Error deleting API key:', error);
     res.status(500).json({ error: 'Error deleting API key' });
   }
 });
@@ -321,5 +340,6 @@ app.post('/api/pageviews', validateApiKey, async (req, res) => {
 
 const PORT = process.env.PORT || 5002;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running at http://192.168.1.3:${PORT}`);
+
 });
