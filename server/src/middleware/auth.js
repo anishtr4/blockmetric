@@ -9,6 +9,7 @@ const validateApiKey = async (req, res, next) => {
 
   try {
     const keyData = await ApiKey.findByKey(apiKey);
+    console.log('keyData',keyData);
     if (!keyData) {
       return res.status(401).json({ error: 'Invalid API key' });
     }
@@ -16,13 +17,14 @@ const validateApiKey = async (req, res, next) => {
     // Enhanced origin validation for web, mobile, and desktop apps
     if (keyData.allowedOrigins && keyData.allowedOrigins.length > 0) {
       const origin = req.headers.origin || req.headers['x-app-identifier'] || '';
+    console.log('req.headers',req.headers);
       const isAllowed = keyData.allowedOrigins.some(allowedOrigin => {
         // Handle web origins (http/https)
         if (allowedOrigin.startsWith('http')) {
           return origin === allowedOrigin;
         }
         // Handle mobile app schemes (e.g., myapp://, com.myapp://)
-        if (allowedOrigin.endsWith('://')) {
+        if (allowedOrigin.startsWith('app://')) {
           return origin.startsWith(allowedOrigin);
         }
         // Handle electron app identifiers (e.g., electron-myapp)
