@@ -1,7 +1,7 @@
 class BlockmetricAnalytics {
   constructor(apiKey, options = {}) {
     this.apiKey = apiKey;
-    this.baseUrl = options.baseUrl || 'http://192.168.1.3:5002';
+    this.baseUrl = options.baseUrl || 'http://localhost:5002';
     this.sessionId = this.generateSessionId();
     this.pageLoadTime = new Date();
     this.visitorId = this.getOrCreateVisitorId();
