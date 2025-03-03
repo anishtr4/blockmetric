@@ -21,7 +21,95 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
 - **Desktop SDK** (Electron)
 - **Flutter SDK** (Mobile/Cross-platform)
 
-## Setup Instructions
+## Docker Setup
+
+### Prerequisites
+- Docker Engine (v20.10 or higher)
+- Docker Compose (v2.0 or higher)
+- Git
+
+### Windows Server Docker Installation References
+- [Installing Docker on Windows Server 2022 (AWS EC2)](https://medium.com/@mudasirhaji/a-step-by-step-guide-to-installing-docker-on-windows-server-2022-on-aws-ec2-d5e9191dc55e)
+- [Installing Docker on Windows Server 2019](https://4sysops.com/archives/install-docker-on-windows-server-2019/)
+
+### Container Architecture
+The application is containerized using Docker with three main services:
+1. **Frontend** - React application served through Nginx
+2. **Backend** - Node.js API server
+3. **MySQL** - Database server
+
+### Environment Setup
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd blockmetric
+   ```
+
+2. Configure environment variables:
+   - Copy example environment files for each service
+   - Update configurations as needed
+
+3. Build and start containers:
+   ```bash
+   docker-compose up --build
+   ```
+
+   This will:
+   - Build all service images
+   - Create and start containers
+   - Set up the network
+   - Initialize the database with schema
+
+4. Access the services:
+   - Frontend: http://localhost:5001
+   - Backend API: http://localhost:3000
+   - MySQL Database: localhost:3307
+
+### Development Workflow
+
+1. Start services in development mode:
+   ```bash
+   docker-compose up
+   ```
+
+2. View logs:
+   ```bash
+   # All services
+   docker-compose logs -f
+
+   # Specific service
+   docker-compose logs -f [service_name]
+   ```
+
+3. Rebuild services after changes:
+   ```bash
+   docker-compose up --build [service_name]
+   ```
+
+4. Stop services:
+   ```bash
+   docker-compose down
+   ```
+
+### Volume Management
+- MySQL data persists in the `mysql_data` volume
+- Source code is mounted as volumes for development
+- Node modules are managed through Docker volumes
+
+### Production Deployment
+
+1. Build production images:
+   ```bash
+   docker-compose -f docker-compose.prod.yml build
+   ```
+
+2. Start production stack:
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+## Local Setup (Without Docker)
 
 ### Prerequisites
 - Node.js (v16 or higher)
@@ -30,22 +118,22 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
 
 ### Server Setup
 
-1. Clone the repository (requires authentication)
-2. Install dependencies:
+1. Install dependencies:
    ```bash
-   cd server
+   cd Backend
    npm install
    ```
-3. Configure environment variables:
+
+2. Configure environment variables:
    - Copy `.env.example` to `.env`
    - Update database credentials and other configuration
 
-4. Initialize database:
+3. Initialize database:
    ```bash
    npm run db:setup
    ```
 
-5. Start the server:
+4. Start the server:
    ```bash
    npm run start
    ```
@@ -54,7 +142,7 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
 
 1. Install dependencies:
    ```bash
-   cd src
+   cd Frontend
    npm install
    ```
 
@@ -67,9 +155,9 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
    npm run dev
    ```
 
-### SDK Integration
+## SDK Integration
 
-#### Web SDK
+### Web SDK
 
 ```html
 <script src="https://cdn.blockmetric.io/sdk/blockmetric.js"></script>
@@ -78,7 +166,7 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
 </script>
 ```
 
-#### Desktop SDK
+### Desktop SDK
 
 ```javascript
 const BlockmetricAnalytics = require('@blockmetric/desktop');
@@ -86,7 +174,7 @@ const BlockmetricAnalytics = require('@blockmetric/desktop');
 const analytics = new BlockmetricAnalytics('YOUR_API_KEY');
 ```
 
-#### Flutter SDK
+### Flutter SDK
 
 ```dart
 import 'package:blockmetric/blockmetric.dart';
@@ -95,35 +183,3 @@ final analytics = await BlockmetricAnalytics.initialize(
   apiKey: 'YOUR_API_KEY'
 );
 ```
-
-## Environment Configuration
-
-### Server Environment Variables
-```
-DB_HOST=localhost
-DB_USER=your_db_user
-DB_PASSWORD=your_db_password
-DB_NAME=blockmetric
-JWT_SECRET=your_jwt_secret
-PORT=5002
-```
-
-### Client Environment Variables
-```
-VITE_API_URL=http://localhost:5002
-VITE_APP_NAME=Blockmetric
-```
-
-## License
-
-**PROPRIETARY AND CONFIDENTIAL**
-
-This software and its documentation are proprietary and confidential. Unauthorized copying, distribution, modification, public display, or public performance of this software, or creating derivative works from it, is strictly prohibited. All rights reserved.
-
-Copyright © 2024 Blockmetric Analytics. All rights reserved.
-
-## Support
-
-For technical support or inquiries about licensing, please contact:
-- Email: support@blockmetric.io
-- Documentation: https://docs.blockmetric.io

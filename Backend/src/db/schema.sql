@@ -1,6 +1,6 @@
 -- Create database if not exists
-CREATE DATABASE IF NOT EXISTS blockmetric_main;
-USE blockmetric_main;
+CREATE DATABASE IF NOT EXISTS blockmetric;
+USE blockmetric;
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (
