@@ -29,8 +29,7 @@ Blockmetric is a powerful, privacy-focused web analytics platform designed to pr
 - Git
 
 ### Windows Server Docker Installation References
-- [Installing Docker on Windows Server 2022 (AWS EC2)](https://medium.com/@mudasirhaji/a-step-by-step-guide-to-installing-docker-on-windows-server-2022-on-aws-ec2-d5e9191dc55e)
-- [Installing Docker on Windows Server 2019](https://4sysops.com/archives/install-docker-on-windows-server-2019/)
+- [Installing Docker on Windows Server 2022/2019](https://www.baeldung.com/ops/docker-windows-server-configuration) 
 
 ### Container Architecture
 The application is containerized using Docker with three main services:
